@@ -14,6 +14,7 @@ end
 function app.boton(b)
   pulsados[b] = nora.ahora()
   ultimo = b
+  if b == "B" and pulsados.L then nora.volver() end   -- B sola se usa para probar; L + B vuelve
   if b == "IZQUIERDA" then sel = math.max(1, sel - 1) end
   if b == "DERECHA" then sel = math.min(3, sel + 1) end
 end
@@ -54,14 +55,15 @@ function app.pinta(t)
 
   -- los botones que estan pulsados ahora
   local x = 30
-  for _, b in ipairs({"A", "B", "X", "Y", "L", "R", "SELECT", "START", "MENU"}) do
-    local w = nora.ancho(b, "peq") + 24
+  for _, b in ipairs({"A", "B", "X", "Y", "L", "R", "L2", "R2", "SELECT", "START", "MENU"}) do
+    local w = nora.ancho(b, "peq") + 18
     local p = pulsados[b]
     nora.caja(x, 330, w, 34, 17, p and NORA or 0x2b2f3f)
     nora.texto(b, x + w / 2, 337, "peq", p and 0xffffff or TENUE, 1, "centro")
-    x = x + w + 8
+    x = x + w + 6
   end
   nora.texto("Último: " .. ultimo, 30, 384, "med", CLARO)
+  nora.texto("L + B para volver", 30, 426, "peq", TENUE)
 
   -- reloj grande, para ver la fluidez
   nora.texto(string.format("%05.2f", t % 100), 610, 395, "gra", 0x2b2f3f, 1, "der")

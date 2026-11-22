@@ -225,6 +225,30 @@ float pinta_texto(int f, float x, float y, const char *t, color_t c)
     return x - x0;
 }
 
+/* un icono de la fuente de iconos, centrado en (cx, cy); -1 si no existe */
+int pinta_icono(const char *nombre, float cx, float cy, color_t c)
+{
+    for (int i = 0; i < NICONOS; i++) {
+        if (strcmp(nombre, ICONOS[i])) continue;
+        const glifo_t *g = &GLIFOS[FUENTE_ICONOS][i];
+        if (!g->w) return 0;
+        cambia(TEXTOS);
+        float gx = (float)(int)(cx - g->w / 2.0f + 0.5f), gy = (float)(int)(cy - g->h / 2.0f + 0.5f);
+        float u0 = (float)g->u / ATLAS_W, v0 = (float)g->v / ATLAS_H;
+        float u1 = (float)(g->u + g->w) / ATLAS_W, v1 = (float)(g->v + g->h) / ATLAS_H;
+        float q[6][4] = {{gx, gy, u0, v0}, {gx + g->w, gy, u1, v0}, {gx + g->w, gy + g->h, u1, v1},
+                         {gx, gy, u0, v0}, {gx + g->w, gy + g->h, u1, v1}, {gx, gy + g->h, u0, v1}};
+        float *v = vtexto + nq * 6 * 8;
+        for (int k = 0; k < 6; k++, v += 8) {
+            v[0] = q[k][0]; v[1] = q[k][1]; v[2] = q[k][2]; v[3] = q[k][3];
+            v[4] = c.r; v[5] = c.g; v[6] = c.b; v[7] = c.a;
+        }
+        nq++;
+        return 0;
+    }
+    return -1;
+}
+
 int pinta_alto_fuente(int f) { return (f >= 0 && f < ATLAS_FUENTES) ? FUENTES[f].alto : 0; }
 int pinta_fuente(const char *n)
 {

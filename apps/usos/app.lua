@@ -116,6 +116,7 @@ end
 function app.entrar() leer(); t_cambio = nora.ahora() end
 
 function app.boton(b)
+  if b == "B" then nora.volver(); return end
   if #fichas < 2 then return end
   local paso = (b == "DERECHA" or b == "R") and 1 or (b == "IZQUIERDA" or b == "L") and -1 or 0
   if paso == 0 then return end

@@ -13,6 +13,16 @@ FUENTES = [  # nombre en la API, fichero, tamaño, caracteres
     ("tit", "Inter-Bold.ttf", 44, LATIN),
     ("gra", "Inter-Bold.ttf", 92, [ord(c) for c in " 0123456789%?-.:+/"]),
 ]
+# iconos (Font Awesome 4 dentro de una Nerd Font): nora.icono("nombre", ...)
+ICONO_FUENTE = os.environ.get("NORA_ICONOS", "/usr/share/fonts/TTF/FantasqueSansMNerdFont-Regular.ttf")
+ICONOS = [("gauge", 0xf0e4), ("smile", 0xf118), ("shield", 0xf132), ("bell", 0xf0f3), ("music", 0xf001),
+          ("cog", 0xf013), ("gamepad", 0xf11b), ("keyboard", 0xf11c), ("home", 0xf015), ("cam", 0xf030),
+          ("moon", 0xf186), ("power", 0xf011), ("vol", 0xf028), ("sun", 0xf185), ("wifi", 0xf1eb),
+          ("usb", 0xf287), ("bat", 0xf240), ("bolt", 0xf0e7), ("plus", 0xf067), ("folder", 0xf07c),
+          ("terminal", 0xf120), ("star", 0xf005), ("heart", 0xf004), ("clock", 0xf017), ("chart", 0xf080),
+          ("info", 0xf05a), ("check", 0xf00c), ("times", 0xf00d), ("play", 0xf04b), ("pause", 0xf04c),
+          ("next", 0xf051), ("prev", 0xf048), ("cube", 0xf1b2), ("puzzle", 0xf12e), ("rocket", 0xf135),
+          ("image", 0xf03e), ("code", 0xf121), ("chev", 0xf054), ("desktop", 0xf108), ("send", 0xf1d8)]
 ANCHO = 1024
 aqui = os.path.dirname(os.path.abspath(__file__))
 
@@ -31,6 +41,18 @@ for i, (nom, fic, tam, chars) in enumerate(FUENTES):
             im = Image.new("L", (w, h), 0)
             ImageDraw.Draw(im).text((-bb[0], -bb[1]), ch, font=f, fill=255)
         glifos.append((i, c, round(f.getlength(ch)), bb[0], bb[1], w, h, im))
+
+# los iconos son una "fuente" mas: el glifo i es el icono i de ICONOS
+fi = ImageFont.truetype(ICONO_FUENTE, 36)
+asc, desc = fi.getmetrics()
+metricas.append(("ico", asc + desc, asc))
+for i, (nom, cp) in enumerate(ICONOS):
+    ch = chr(cp)
+    bb = fi.getbbox(ch)
+    w, h = max(0, bb[2] - bb[0]), max(0, bb[3] - bb[1])
+    im = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(im).text((-bb[0], -bb[1]), ch, font=fi, fill=255)
+    glifos.append((len(FUENTES), i, round(fi.getlength(ch)), bb[0], bb[1], w, h, im))
 
 # empaquetado por estantes, de mas alto a mas bajo, con 1 px de margen
 orden = sorted(range(len(glifos)), key=lambda k: -glifos[k][6])
@@ -56,13 +78,15 @@ for k, g in enumerate(glifos):
         atlas.paste(g[7], pos[k])
 
 out = ["/* generado por atlas.py: no editar */",
-       f"#define ATLAS_W {ANCHO}", f"#define ATLAS_H {alto}", f"#define ATLAS_FUENTES {len(FUENTES)}",
+       f"#define ATLAS_W {ANCHO}", f"#define ATLAS_H {alto}", f"#define ATLAS_FUENTES {len(FUENTES) + 1}",
+       f"#define FUENTE_ICONOS {len(FUENTES)}", f"#define NICONOS {len(ICONOS)}",
+       "static const char *ICONOS[NICONOS] = {" + ", ".join(f'"{n}"' for n, _ in ICONOS) + "};",
        "typedef struct { short adv, x, y, w, h, u, v; } glifo_t;",
        "typedef struct { const char *nombre; int alto, base; } fuente_t;",
        "static const fuente_t FUENTES[ATLAS_FUENTES] = {" +
        ", ".join(f'{{"{n}", {a}, {b}}}' for n, a, b in metricas) + "};",
        "static const glifo_t GLIFOS[ATLAS_FUENTES][256] = {"]
-for i in range(len(FUENTES)):
+for i in range(len(FUENTES) + 1):
     tabla = {g[1]: (g[2], g[3], g[4], g[5], g[6], *pos[k]) for k, g in enumerate(glifos) if g[0] == i}
     filas = ["{%d,%d,%d,%d,%d,%d,%d}" % tabla.get(c, (0, 0, 0, 0, 0, 0, 0)) for c in range(256)]
     out.append("  {" + ",".join(filas) + "},")

@@ -17,6 +17,7 @@ void pinta_caja(float x, float y, float w, float h, float radio, color_t c, floa
 float pinta_texto(int fuente, float x, float y, const char *utf8, color_t c);
 float pinta_ancho(int fuente, const char *utf8);
 int pinta_alto_fuente(int fuente);
+int pinta_icono(const char *nombre, float cx, float cy, color_t c);   /* centrado; -1 si no existe */
 int pinta_fuente(const char *nombre);   /* "peq" "med" "tit" "gra" -> indice, -1 si no */
 void pinta_terminar(void);              /* manda lo que quede */
 int pinta_dibujados(void);              /* tandas mandadas en el ultimo fotograma */
