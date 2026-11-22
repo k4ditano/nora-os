@@ -193,8 +193,28 @@ int ventana_abrir(void)
         fprintf(stderr, "nora: sin /dev/fb0\n");
         return -1;
     }
+    /* Al encender, la pantalla esta en 32 bits (es el menu de GarlicOS el que la
+     * pasa a 16). Nora la pone en RGB565 con tres paginas: copiar cuesta la mitad. */
+    if (V.vi.bits_per_pixel != 16 || V.vi.yres_virtual < 3 * V.vi.yres) {
+        fprintf(stderr, "nora: pantalla en %d bits y %d paginas: la paso a RGB565 con 3\n",
+                V.vi.bits_per_pixel, V.vi.yres_virtual / V.vi.yres);
+        V.vi.bits_per_pixel = 16;
+        V.vi.red.offset = 11;  V.vi.red.length = 5;
+        V.vi.green.offset = 5; V.vi.green.length = 6;
+        V.vi.blue.offset = 0;  V.vi.blue.length = 5;
+        V.vi.transp.offset = 0; V.vi.transp.length = 0;
+        V.vi.xres_virtual = V.vi.xres;
+        V.vi.yres_virtual = 3 * V.vi.yres;
+        V.vi.xoffset = V.vi.yoffset = 0;
+        V.vi.activate = FB_ACTIVATE_NOW;
+        if (ioctl(V.fb, FBIOPUT_VSCREENINFO, &V.vi) || ioctl(V.fb, FBIOGET_VSCREENINFO, &V.vi) ||
+            ioctl(V.fb, FBIOGET_FSCREENINFO, &V.fi)) {
+            fprintf(stderr, "nora: no puedo cambiar el modo de la pantalla\n");
+            return -1;
+        }
+    }
     if (V.vi.bits_per_pixel != 16) {
-        fprintf(stderr, "nora: la pantalla no esta en 16 bits (%d)\n", V.vi.bits_per_pixel);
+        fprintf(stderr, "nora: la pantalla sigue en %d bits\n", V.vi.bits_per_pixel);
         return -1;
     }
     V.W = V.vi.xres;
