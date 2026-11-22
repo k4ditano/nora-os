@@ -25,16 +25,20 @@ local function cargar()
 end
 
 -- una linea con lo mas urgente: lo que queda de Claude, si el PC lo ha mandado
+local json = require "json"
+local version_usos = -1
 local function leer_resumen()
-  local f = io.open(os.getenv("NORA_USOS") or "/tmp/usos.txt", "rb")
-  if not f then resumen = #apps .. " apps"; return end
+  local s, v = nora.dato("usos.fichas")
+  if v == version_usos and resumen ~= "" then return end
+  version_usos = v
   local peor
-  for linea in f:lines() do
-    local tipo, _, pct = linea:match("^(%a)\t([^\t]*)\t([%-%d]+)")
-    if tipo == "F" and peor then break end
-    if tipo == "B" then pct = tonumber(pct); if pct and pct >= 0 and (not peor or pct > peor) then peor = pct end end
+  local fichas = s and json.lee(s)
+  if type(fichas) == "table" and type(fichas[1]) == "table" and type(fichas[1].barras) == "table" then
+    for _, b in ipairs(fichas[1].barras) do                 -- la primera ficha es Claude
+      local pct = tonumber(b.pct)
+      if pct and pct >= 0 and (not peor or pct > peor) then peor = pct end
+    end
   end
-  f:close()
   resumen = peor and string.format("Claude te deja un %d %% · %d apps", 100 - peor, #apps) or (#apps .. " apps")
 end
 
@@ -74,6 +78,7 @@ function app.actualiza(dt)
 end
 
 function app.pinta(t)
+  leer_resumen()
   nora.fondo(0x0e1017)
   local e = suave(t / 0.5)
   nora.texto(saludo(), 28, 52 + 10 * (1 - e), "tit", CLARO, e)

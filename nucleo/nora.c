@@ -8,6 +8,12 @@
  *
  *   nora [id-de-app | carpeta]      (por defecto "inicio")
  *   NORA_APPS=/mnt/mmc/nora/apps    donde estan las apps (una carpeta por app)
+ *   NORA_LIB=/mnt/mmc/nora/lib      modulos Lua comunes (json...), por defecto <apps>/../lib
+ *
+ * El PC (nora-puente) se conecta por TCP a :7070, un JSON por linea. El nucleo
+ * manda el saludo y los latidos; cada linea que llega va al sistema:
+ * app.mensaje(linea). El sistema guarda los datos para las apps con
+ * nora.guardar(clave, texto) y cada app los lee con nora.dato(clave).
  *
  * Una app (app.lua) define, todas opcionales:
  *   app.entrar()  app.actualiza(dt)  app.pinta(t)  app.boton(b)  app.suelta(b)
@@ -29,7 +35,9 @@
 #include <time.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <linux/input.h>
+#include <linux/rtc.h>
 #include <sound/asound.h>
 #ifndef BTN_SOUTH
 #define BTN_SOUTH BTN_A
@@ -43,8 +51,9 @@
 #include "ventana.h"
 #include "pinta.h"
 #include "sonido.h"
+#include "enlace.h"
 
-#define VERSION "0.2"
+#define VERSION "0.3"
 
 static volatile int seguir = 1;
 static void parar(int s) { (void)s; seguir = 0; }
@@ -58,6 +67,14 @@ static const char *apps_dir(void)
 {
     const char *d = getenv("NORA_APPS");
     return d ? d : "/mnt/mmc/nora/apps";
+}
+static const char *lib_dir(void)
+{
+    static char d[512];
+    const char *e = getenv("NORA_LIB");
+    if (e) return e;
+    if (!d[0]) snprintf(d, sizeof d, "%s/../lib", apps_dir());
+    return d;
 }
 
 /* ---------------- el menu de GarlicOS (mientras exista) ---------------- */
@@ -325,12 +342,74 @@ static int l_volumen(lua_State *l)  /* [0..1] -> 0..1 */
     return 1;
 }
 
+/* ---------------- datos del PC, compartidos entre los dos mundos ---------------- */
+typedef struct dato { char *clave, *valor; int version; struct dato *sig; } dato_t;
+static dato_t *datos;
+static int version_datos;
+static dato_t *busca_dato(const char *clave)
+{
+    for (dato_t *d = datos; d; d = d->sig)
+        if (!strcmp(d->clave, clave)) return d;
+    return 0;
+}
+static int l_guardar(lua_State *l)  /* clave texto|nil */
+{
+    const char *clave = luaL_checkstring(l, 1);
+    dato_t *d = busca_dato(clave);
+    if (!d) {
+        d = calloc(1, sizeof *d);
+        d->clave = strdup(clave);
+        d->sig = datos;
+        datos = d;
+    }
+    free(d->valor);
+    d->valor = lua_isnoneornil(l, 2) ? 0 : strdup(luaL_checkstring(l, 2));
+    d->version = ++version_datos;
+    return 0;
+}
+static int l_dato(lua_State *l)     /* clave -> texto|nil, version (cambia con cada guardar) */
+{
+    dato_t *d = busca_dato(luaL_checkstring(l, 1));
+    if (!d || !d->valor) { lua_pushnil(l); lua_pushnumber(l, d ? d->version : 0); return 2; }
+    lua_pushstring(l, d->valor);
+    lua_pushnumber(l, d->version);
+    return 2;
+}
+static int l_enviar(lua_State *l) { lua_pushboolean(l, enlace_enviar(luaL_checkstring(l, 1)) == 0); return 1; }
+static int l_conectado(lua_State *l)    /* -> true, ip | false */
+{
+    if (!enlace_conectado()) { lua_pushboolean(l, 0); return 1; }
+    lua_pushboolean(l, 1);
+    lua_pushstring(l, enlace_quien());
+    return 2;
+}
+static int l_poner_hora(lua_State *l)   /* segundos desde 1970 (UTC): reloj del sistema y RTC */
+{
+    struct timeval tv = {(time_t)luaL_checknumber(l, 1), 0};
+    int ok = settimeofday(&tv, 0) == 0;
+    int fd = open("/dev/rtc0", O_WRONLY);
+    if (fd >= 0) {
+        struct tm g;
+        gmtime_r(&tv.tv_sec, &g);
+        struct rtc_time r;
+        memset(&r, 0, sizeof r);
+        r.tm_sec = g.tm_sec; r.tm_min = g.tm_min; r.tm_hour = g.tm_hour;
+        r.tm_mday = g.tm_mday; r.tm_mon = g.tm_mon; r.tm_year = g.tm_year;
+        if (ioctl(fd, RTC_SET_TIME, &r)) perror("nora: RTC_SET_TIME");
+        close(fd);
+    }
+    if (!ok) perror("nora: settimeofday");
+    lua_pushboolean(l, ok);
+    return 1;
+}
+
 static const luaL_Reg API[] = {
     {"fondo", l_fondo}, {"caja", l_caja}, {"sombra", l_sombra}, {"circulo", l_circulo}, {"texto", l_texto},
     {"icono", l_icono}, {"ancho", l_ancho}, {"alto", l_alto}, {"ahora", l_ahora}, {"suena", l_suena},
     {"musica", l_musica}, {"log", l_log}, {"salir", l_salir}, {"lista", l_lista}, {"abrir", l_abrir}, {"volver", l_volver},
     {"app", l_app}, {"bateria", l_bateria}, {"enlace", l_enlace}, {"brillo", l_brillo},
-    {"volumen", l_volumen}, {0, 0}};
+    {"volumen", l_volumen}, {"guardar", l_guardar}, {"dato", l_dato}, {"enviar", l_enviar},
+    {"conectado", l_conectado}, {"poner_hora", l_poner_hora}, {0, 0}};
 
 static int traza(lua_State *l)
 {
@@ -420,7 +499,7 @@ static int mundo_abrir(mundo_t *m, const char *quien)
     lua_pop(L, 1);
     lua_getglobal(L, "package");          /* require() busca primero en la carpeta de la app */
     lua_getfield(L, -1, "path");
-    lua_pushfstring(L, "%s/?.lua;%s", m->carpeta, lua_tostring(L, -1));
+    lua_pushfstring(L, "%s/?.lua;%s/?.lua;%s", m->carpeta, lib_dir(), lua_tostring(L, -1));
     lua_setfield(L, -3, "path");
     lua_pop(L, 2);
     lua_newtable(L);
@@ -503,6 +582,25 @@ static void entrada_eje(int code, int valor)
     }
 }
 
+/* ---------------- el PC ---------------- */
+static void recibir(const char *linea)
+{
+    if (strstr(linea, "\"tipo\":\"latido\"")) return;    /* el latido solo mantiene viva la conexion */
+    if (!sis.L) return;
+    lua_pushstring(sis.L, linea);
+    llama(&sis, "mensaje", 1, 0);
+}
+static void saludar(void)
+{
+    char st[32], m[256];
+    lee_txt("/sys/class/power_supply/battery/status", st, sizeof st);
+    snprintf(m, sizeof m,
+             "{\"tipo\":\"hola\",\"version\":\"%s\",\"bateria\":%d,\"cargando\":%s,\"app\":\"%s\",\"ancho\":%d,\"alto\":%d}",
+             VERSION, lee_int("/sys/class/power_supply/battery/capacity", -1),
+             !strcmp(st, "Charging") || !strcmp(st, "Full") ? "true" : "false", app.id, ventana_ancho(), ventana_alto());
+    enlace_enviar(m);
+}
+
 int main(int argc, char **argv)
 {
     const char *primera = argc > 1 ? argv[1] : "inicio";
@@ -556,6 +654,7 @@ int main(int argc, char **argv)
 
     menu_garlic(SIGSTOP);
     abrir_entradas();
+    enlace_iniciar(ENLACE_PUERTO);
 
     /* fundido entre apps: fase 1 oscurece, se cambia, fase 2 aclara */
     int fase = 0;
@@ -576,6 +675,12 @@ int main(int argc, char **argv)
             }
         double t = ahora(), dt = t - antes;
         antes = t;
+
+        int cambio = enlace_paso(t, recibir);
+        if (cambio) {
+            if (cambio > 0) saludar();
+            if (sis.L) { lua_pushboolean(sis.L, cambio > 0); llama(&sis, "enlace", 1, 0); }
+        }
 
         if (pendiente[0] && fase == 0) { fase = 1; t_fase = t; }
         if (fase == 1 && t - t_fase >= SALE) {
@@ -627,6 +732,7 @@ int main(int argc, char **argv)
         }
     }
 
+    enlace_cerrar();
     sonido_cerrar();
     ventana_cerrar();
     menu_garlic(SIGCONT);

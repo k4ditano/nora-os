@@ -1,43 +1,38 @@
 -- Usos: cuanto te queda de Claude y Codex. Primera app de Nora en LuaJIT.
--- Lee /tmp/usos.txt (lo manda el PC: nora-puente / usos-pc.py), una ficha por
--- bloque; ◀ ▶ pasa de una a otra con transicion y sonido.
---   F <tab> titulo <tab> subtitulo <tab> nota <tab> color hex
---   B <tab> nombre <tab> % usado (-1 = no se sabe) <tab> detalle
---   T <tab> nombre <tab> valor
+-- Las fichas las manda el PC (nora-puente) como el dato "usos.fichas":
+--   [{titulo, sub, nota, color = "d97757",
+--     barras = [{nombre, pct (-1 = no se sabe), detalle}], filas = [{nombre, valor}]}]
+-- ◀ ▶ pasa de una a otra con transicion y sonido.
+local json = require "json"
 local FONDO, PANEL, TENUE, CLARO, RIEL = 0x0e1017, 0x1a1d29, 0x8b90a5, 0xf3f4f8, 0x2b2f3f
-local DATOS = os.getenv("NORA_USOS") or "/tmp/usos.txt"
 local SONIDOS = os.getenv("NORA_SONIDOS") or "/tmp/nora/sonidos"
 
 local fichas = {}
 local actual, desde, t_cambio, dir = 1, nil, -10, 1
-local ult_lectura = -10
+local version = -1
 
--- el PC manda Latin-1; el nucleo pinta UTF-8
-local function utf8(s)
-  return (s:gsub("[\128-\255]", function(c)
-    local b = c:byte()
-    return string.char(0xc0 + math.floor(b / 64), 0x80 + b % 64)
-  end))
-end
+local function texto(v) return type(v) == "string" and v or (type(v) == "number" and tostring(v) or "") end
 
 local function leer()
-  local f = io.open(DATOS, "rb")
-  if not f then return end
-  local nuevas, k = {}, nil
-  for linea in f:lines() do
-    local c = {}
-    for campo in (utf8(linea) .. "\t"):gmatch("([^\t]*)\t") do c[#c + 1] = campo end
-    if c[1] == "F" then
-      k = {titulo = c[2] or "", sub = c[3] or "", nota = c[4] or "", color = tonumber(c[5] or "", 16) or TENUE,
-           barras = {}, filas = {}}
+  local s, v = nora.dato("usos.fichas")
+  if v == version then return end
+  version = v
+  local lista = s and json.lee(s)
+  if type(lista) ~= "table" then return end
+  local nuevas = {}
+  for _, f in ipairs(lista) do
+    if type(f) == "table" then
+      local k = {titulo = texto(f.titulo), sub = texto(f.sub), nota = texto(f.nota),
+                 color = tonumber(texto(f.color), 16) or TENUE, barras = {}, filas = {}}
+      for _, b in ipairs(type(f.barras) == "table" and f.barras or {}) do
+        k.barras[#k.barras + 1] = {nombre = texto(b.nombre), pct = tonumber(b.pct) or -1, detalle = texto(b.detalle)}
+      end
+      for _, r in ipairs(type(f.filas) == "table" and f.filas or {}) do
+        k.filas[#k.filas + 1] = {nombre = texto(r.nombre), valor = texto(r.valor)}
+      end
       nuevas[#nuevas + 1] = k
-    elseif c[1] == "B" and k then
-      k.barras[#k.barras + 1] = {nombre = c[2] or "", pct = tonumber(c[3]) or -1, detalle = c[4] or ""}
-    elseif c[1] == "T" and k then
-      k.filas[#k.filas + 1] = {nombre = c[2] or "", valor = c[3] or ""}
     end
   end
-  f:close()
   if #nuevas > 0 then fichas = nuevas; actual = math.min(actual, #fichas) end
 end
 
@@ -127,10 +122,10 @@ function app.boton(b)
 end
 
 function app.pinta(t)
-  if t - ult_lectura > 1 then leer(); ult_lectura = t end
+  leer()
   nora.fondo(FONDO)
   if #fichas == 0 then
-    nora.texto("Esperando datos del PC…", 320, 220, "med", TENUE, 1, "centro")
+    nora.texto(nora.conectado() and "Esperando datos del PC…" or "Sin conexión con nora-puente", 320, 220, "med", TENUE, 1, "centro")
     return
   end
   local p = (t - t_cambio) / 0.32
