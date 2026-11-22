@@ -1,0 +1,26 @@
+# lo que no es nuestro: se baja o se trae con un script
+gpu/blobs-guitar/
+gpu/bionic/
+gpu/kernel-lemaker/
+gpu/*.ko
+gpu/triangulo/include/
+
+# compilado
+gpu/salida/
+gpu/triangulo/triangulo
+gpu/triangulo/ventana
+gpu/despertar/*.ko
+gpu/despertar/*.o
+gpu/despertar/*.mod.c
+gpu/despertar/.*.cmd
+gpu/despertar/.tmp_versions/
+gpu/despertar/modules.order
+gpu/despertar/Module.symvers
+prototipos/usos/fuentes.h
+prototipos/**/*.bin
+
+# generados al analizar
+gpu/*.txt
+
+# privado: captura del escritorio del autor, solo de fondo para las maquetas
+diseno/ref-escritorio.png
