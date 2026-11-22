@@ -309,7 +309,52 @@ static int l_log(lua_State *l)
     lua_pop(l, 1);
     return 0;
 }
-static int l_salir(lua_State *l) { (void)l; seguir = 0; return 0; }
+/* nora.salir([que]): cierra Nora. El codigo de salida le dice al arranque que hacer:
+ * 10 apagar, 11 reiniciar, 12 volver a GarlicOS, 0 nada en especial */
+static int codigo_salida;
+static int l_salir(lua_State *l)
+{
+    const char *q = luaL_optstring(l, 1, "");
+    codigo_salida = !strcmp(q, "apagar") ? 10 : !strcmp(q, "reiniciar") ? 11 : !strcmp(q, "garlic") ? 12 : 0;
+    seguir = 0;
+    return 0;
+}
+
+/* ---- reposo ligero: pantalla apagada, CPU al minimo, sin sonido; el boton de
+ * encendido lo despierta (la conexion con el PC sigue viva) ---- */
+#define CPU "/sys/devices/system/cpu/"
+static int dormido, brillo_antes, vol_antes;
+static char gobernador_antes[32];
+static double t_dormido;
+static void dormir(void)
+{
+    if (dormido) return;
+    dormido = 1;
+    t_dormido = ahora();
+    brillo_antes = lee_int(BRILLO "brightness", 600);
+    vol_antes = volumen(-1);
+    lee_txt(CPU "cpu0/cpufreq/scaling_governor", gobernador_antes, sizeof gobernador_antes);
+    escribe_int(BRILLO "brightness", 0);
+    volumen(0);
+    FILE *f = fopen(CPU "cpu0/cpufreq/scaling_governor", "w");
+    if (f) { fputs("powersave", f); fclose(f); }
+    f = fopen(CPU "autoplug/plug_mask", "w");
+    if (f) { fputs("0x1", f); fclose(f); }   /* un solo nucleo */
+    fprintf(stderr, "nora: reposo\n");
+}
+static void despertar(void)
+{
+    if (!dormido) return;
+    dormido = 0;
+    FILE *f = fopen(CPU "autoplug/plug_mask", "w");
+    if (f) { fputs("0xF", f); fclose(f); }
+    f = fopen(CPU "cpu0/cpufreq/scaling_governor", "w");
+    if (f) { fputs(gobernador_antes[0] ? gobernador_antes : "interactive", f); fclose(f); }
+    if (vol_antes >= 0) volumen(vol_antes);
+    escribe_int(BRILLO "brightness", brillo_antes > 0 ? brillo_antes : 600);
+    fprintf(stderr, "nora: despierta tras %.0f s\n", ahora() - t_dormido);
+}
+static int l_reposo(lua_State *l) { (void)l; dormir(); return 0; }
 static int l_lista(lua_State *l)    /* nombres de una carpeta, ordenados */
 {
     DIR *d = opendir(luaL_checkstring(l, 1));
@@ -638,7 +683,7 @@ static int l_recorte(lua_State *l)  /* x y w h: solo se pinta dentro; sin argume
 
 /* ---- botones mantenidos, y pulsaciones de mentira (desde el PC) ---- */
 static const char *BOTONES[] = {"A", "B", "X", "Y", "L", "R", "L2", "R2", "SELECT", "START", "MENU",
-                                "ARRIBA", "ABAJO", "IZQUIERDA", "DERECHA", 0};
+                                "ARRIBA", "ABAJO", "IZQUIERDA", "DERECHA", "ENCENDIDO", 0};
 static int boton_idx(const char *b)
 {
     for (int i = 0; BOTONES[i]; i++) if (!strcmp(b, BOTONES[i])) return i;
@@ -747,7 +792,7 @@ static const luaL_Reg API[] = {
     {"conectado", l_conectado}, {"poner_hora", l_poner_hora}, {"de64", l_de64}, {"escribir", l_escribir},
     {"borrar", l_borrar}, {"es_carpeta", l_es_carpeta}, {"imagen", l_imagen}, {"dibuja", l_dibuja},
     {"linea", l_linea}, {"recorte", l_recorte}, {"pulsado", l_pulsado}, {"pulsar", l_pulsar},
-    {"salvar", l_salvar}, {"cargar", l_cargar}, {"captura", l_captura}, {"fps", l_fps}, {0, 0}};
+    {"salvar", l_salvar}, {"cargar", l_cargar}, {"captura", l_captura}, {"fps", l_fps}, {"reposo", l_reposo}, {0, 0}};
 
 static mundo_t *mundo_de(lua_State *l) { return l == app.L ? &app : l == sis.L ? &sis : 0; }
 static const char *id_de(lua_State *l) { mundo_t *m = mundo_de(l); return m ? m->id : "?"; }
@@ -913,8 +958,18 @@ static void pinta_error(mundo_t *m)
 
 /* ---------------- entrada ---------------- */
 static int sel_pulsado, start_pulsado, sis_tiene;   /* sis_tiene: el sistema se quedo la pulsacion */
+static double t_encendido;           /* cuando se pulso el boton de encendido (0: suelto) */
+static int encendido_largo;          /* ya se abrio el menu de apagado con esta pulsacion */
 static void entrada_boton(const char *b, int pulsado)
 {
+    /* el boton de encendido es del nucleo: corto = reposo / despertar; largo = menu de apagado */
+    if (!strcmp(b, "ENCENDIDO")) {
+        if (pulsado) { t_encendido = ahora(); encendido_largo = 0; return; }
+        if (t_encendido && !encendido_largo) { if (dormido) despertar(); else dormir(); }
+        t_encendido = 0;
+        return;
+    }
+    if (dormido) return;                            /* dormida: solo el boton de encendido */
     int bi = boton_idx(b);
     if (!pulsado && bi >= 0) mantenido[bi] = 0;
     if (!strcmp(b, "SELECT")) sel_pulsado = pulsado;
@@ -1090,12 +1145,33 @@ int main(int argc, char **argv)
         }
         antes = t;
 
+        if (t_encendido && !encendido_largo && t - t_encendido >= 1.0) {   /* pulsacion larga */
+            encendido_largo = 1;
+            if (dormido) despertar();
+            if (sis.L) llama(&sis, "energia", 0, 0);
+        }
         int cambio = enlace_paso(t, recibir);
         if (cambio) {
             if (cambio > 0) saludar();
             if (sis.L) { lua_pushboolean(sis.L, cambio > 0); llama(&sis, "enlace", 1, 0); }
         }
 
+        if (dormido) {                                /* sin dibujar: la pantalla esta apagada */
+            static double t_bat;
+            if (t - t_bat > 30) {                     /* que no se apague de golpe sin bateria */
+                char st[32];
+                t_bat = t;
+                lee_txt("/sys/class/power_supply/battery/status", st, sizeof st);
+                int b = lee_int("/sys/class/power_supply/battery/capacity", 100);
+                if (b >= 0 && b <= 3 && strcmp(st, "Charging") && strcmp(st, "Full")) {
+                    fprintf(stderr, "nora: bateria al %d%% dormida: se apaga\n", b);
+                    codigo_salida = 10;
+                    seguir = 0;
+                }
+            }
+            usleep(50000);
+            continue;
+        }
         if (pendiente[0] && fase == 0) { fase = 1; t_fase = t; }
         if (fase == 1 && t - t_fase >= SALE) {
             char quien[512];
@@ -1153,10 +1229,12 @@ int main(int argc, char **argv)
     enlace_cerrar();
     sonido_cerrar();
     ventana_cerrar();
+    despertar();
     menu_garlic(SIGCONT);
     mundo_cerrar(&app);
     mundo_cerrar(&sis);
     eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglTerminate(dpy);
-    return 0;
+    sync();
+    return codigo_salida;
 }

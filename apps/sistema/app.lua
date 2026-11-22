@@ -12,7 +12,7 @@ local T = require "tema"                  -- colores, sonidos y estilo del tema 
 local abierto, t_abre, t_cierra = false, -10, -10
 local fila, col = 1, 1                     -- fila 1 volumen, 2 brillo, 3 botones
 local estado = {t = -10}
-local BOTONES = {{"home", "Inicio", "inicio"}, {"cog", "Ajustes", "ajustes"}, {"power", "Salir", "salir"}}
+local BOTONES = {{"home", "Inicio", "inicio"}, {"cog", "Ajustes", "ajustes"}, {"power", "Apagar", "energia"}}
 
 local function suave(p) p = math.max(0, math.min(1, p)); return 1 - (1 - p) ^ 3 end
 local function suena(n) T.suena(n) end
@@ -78,7 +78,13 @@ local function menu(t)
   end
 end
 
-function app.entrar() refresca(0) end
+-- brillo y volumen se recuerdan al apagar (datos/sistema/ajustes)
+local guardado = json.lee(nora.cargar("ajustes") or "") or {}
+function app.entrar()
+  if type(guardado.brillo) == "number" then nora.brillo(math.max(0.02, guardado.brillo)) end
+  if type(guardado.vol) == "number" then nora.volumen(guardado.vol) end
+  refresca(0)
+end
 
 ---------------------------------------------------------------- avisos
 local DURA = 6                             -- segundos que se queda un aviso
@@ -466,20 +472,125 @@ function app.enlace(conectado)
   end
 end
 
+---------------------------------------------------------------- energia
+-- El boton de encendido es del nucleo: corto = reposo; largo = este panel (app.energia).
+-- NORA_MODO=propio: Nora arranca sola (es /misc/dmenu.bin) y GarlicOS queda de reserva.
+local MODO_PROPIO = os.getenv("NORA_MODO") == "propio"
+local function existe(r) local f = io.open(r); if f then f:close() end; return f ~= nil end
+local HAY_GARLIC = not MODO_PROPIO or existe("/misc/dmenu-garlic.bin")
+local energia, saliendo, apagando = nil, nil, nil   -- panel abierto; {que, t}; {t} por bateria
+local bateria_avisada = false
+
+local function opciones_energia()
+  local o = {{"power", "Apagar", "apagar"}, {"next", "Reiniciar", "reiniciar"}, {"moon", "Reposo", "reposo"}}
+  if HAY_GARLIC then o[#o + 1] = {"gamepad", MODO_PROPIO and "Ir a GarlicOS (juegos)" or "Volver a GarlicOS", "garlic"} end
+  o[#o + 1] = {"times", "Cancelar", "cancelar"}
+  return o
+end
+
+function app.energia()
+  if saliendo then return end
+  abierto = false
+  energia = {sel = 1, opciones = opciones_energia(), t = nora.ahora()}
+  suena("menu")
+end
+
+local function elige_energia(que)
+  energia = nil
+  if que == "cancelar" then suena("volver")
+  elseif que == "reposo" then suena("volver"); nora.reposo()
+  else suena("abrir"); saliendo = {que = que, t = nora.ahora()} end
+end
+
+local function boton_energia(b)
+  if saliendo then return true end
+  if apagando then return true end                     -- solo el cargador lo para
+  if not energia then return false end
+  local n = #energia.opciones
+  if b == "ABAJO" then energia.sel = energia.sel % n + 1; suena("mover")
+  elseif b == "ARRIBA" then energia.sel = (energia.sel - 2) % n + 1; suena("mover")
+  elseif b == "A" then elige_energia(energia.opciones[energia.sel][3])
+  elseif b == "B" or b == "MENU" then elige_energia("cancelar") end
+  return true
+end
+
+local function vigila_bateria(t)
+  if not estado.bat or estado.bat < 0 then return end
+  if estado.cargando then bateria_avisada = false; apagando = nil; return end
+  if estado.bat <= 10 and not bateria_avisada then
+    bateria_avisada = true
+    avisar({titulo = "Batería baja", texto = "Queda un " .. estado.bat .. " %. Conecta el cargador.", app = "Nora"})
+  end
+  if estado.bat <= 3 and not apagando and not saliendo then apagando = {t = nora.ahora()}; suena("aviso") end
+end
+
+local function guarda_ajustes()
+  if not estado.vol or not estado.brillo then return end
+  if math.abs((guardado.vol or -1) - estado.vol) > 0.01 or math.abs((guardado.brillo or -1) - estado.brillo) > 0.01 then
+    guardado = {vol = estado.vol, brillo = estado.brillo}
+    nora.salvar("ajustes", json.escribe(guardado))
+  end
+end
+
+local function pinta_energia(t)
+  local ahora = nora.ahora()
+  if energia then
+    local p = suave((ahora - energia.t) / 0.22)
+    nora.caja(-2, -2, 644, 484, 0, T.velo, 0.6 * p)
+    local n = #energia.opciones
+    local w, h = 380, 76 + n * 50
+    local x, y = (640 - w) / 2, (480 - h) / 2 + 20 * (1 - p)
+    T.sombrea(x, y + 8, w, h, 24, 20, 0.5 * p)
+    nora.caja(x, y, w, h, T.radio(24), T.panel)
+    nora.texto("Energía", x + 28, y + 18, "med", T.texto)
+    for i, o in ipairs(energia.opciones) do
+      local oy = y + 70 + (i - 1) * 50
+      local el = i == energia.sel
+      if el then nora.caja(x + 14, oy - 4, w - 28, 44, T.radio(14), T.acento) end
+      nora.icono(o[1], x + 44, oy + 18, el and T.sobre_acento or T.texto, 1)
+      nora.texto(o[2], x + 74, oy + 6, "peq", el and T.sobre_acento or T.texto)
+    end
+  end
+  if apagando then
+    local queda = math.max(0, 15 - (ahora - apagando.t))
+    nora.caja(-2, -2, 644, 484, 0, T.velo, 0.8)
+    nora.caja(70, 150, 500, 180, T.radio(24), T.panel)
+    nora.icono("bat", 120, 200, T.mal, 1)
+    nora.texto("Batería casi vacía", 150, 180, "med", T.texto)
+    nora.texto(string.format("Nora se apaga en %d s", math.ceil(queda)), 150, 228, "peq", T.suave)
+    nora.texto("Conecta el cargador para seguir", 150, 262, "peq", T.tenue)
+    if queda <= 0 then apagando = nil; saliendo = {que = "apagar", t = ahora} end
+  end
+  if saliendo then
+    local p = math.min(1, (ahora - saliendo.t) / 0.6)
+    nora.caja(-2, -2, 644, 484, 0, 0x000000, p)
+    local txt = saliendo.que == "apagar" and "Apagando..." or saliendo.que == "reiniciar" and "Reiniciando..."
+                or "Abriendo GarlicOS..."
+    nora.texto(txt, 320, 225, "med", 0xffffff, p, "centro")
+    if ahora - saliendo.t > 0.9 then nora.salir(saliendo.que) end
+  end
+end
+
 function app.pinta(t, con_barra, id)
   T.revisa()
   refresca(t)
   avisa_estado(id)
   if con_barra then barra(t) end
+  vigila_bateria(t)
+  guarda_ajustes()
   menu(t)
   pinta_aviso(t)
   pinta_permiso(t)
+  pinta_energia(t)
 end
 
 -- con el menu abierto, todo es del sistema; con un aviso, A y B (el resto sigue yendo a la app)
-function app.abierto() return abierto or permiso ~= nil or (actual ~= nil and not t_fuera) end
+function app.abierto()
+  return abierto or permiso ~= nil or (actual ~= nil and not t_fuera) or energia ~= nil or saliendo ~= nil or apagando ~= nil
+end
 
 function app.boton(b)
+  if boton_energia(b) then return true end
   if permiso then                          -- un permiso se lo queda todo hasta que se conteste
     if b == "A" then contestar(true)
     elseif b == "B" then contestar(false)
@@ -517,7 +628,7 @@ function app.boton(b)
     local accion = BOTONES[col][3]
     abierto = false; t_cierra = nora.ahora()
     suena("abrir")
-    if accion == "salir" then nora.salir() else nora.abrir(accion) end
+    if accion == "energia" then app.energia() else nora.abrir(accion) end
   end
   return true
 end

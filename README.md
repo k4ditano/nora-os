@@ -10,7 +10,7 @@
 
 Nora convierte la RG35XX en una pantallita viva que se conecta al PC por el cable USB-C (o por Wi-Fi): enseña lo que importa (cuánto te queda de Claude o Codex, avisos, permisos que aprobar con A/B), suena, responde a los botones y se le instalan **apps y juegos propios en Lua** desde el PC, sin recompilar nada.
 
-Vive **encima del kernel y del arranque de Anbernic**, que no se tocan, igual que GarlicOS sustituye al menú de fábrica. El servicio del PC está en un repo aparte: [`nora-puente`](https://github.com/k4ditano/nora-puente).
+Vive **encima del kernel y del arranque de Anbernic**, que no se tocan, igual que GarlicOS sustituye al menú de fábrica. Puede arrancar **sola** (es `/misc/dmenu.bin`, el guion que lanza el sistema de Anbernic: `arranque/arranque-propio.sh`, se deshace con `--quitar`) o encima de GarlicOS (`CFW/autostart`). Arrancando sola, GarlicOS queda de reserva: SELECT al encender, tres fallos seguidos, o *Energía → Ir a GarlicOS*. El servicio del PC está en un repo aparte: [`nora-puente`](https://github.com/k4ditano/nora-puente).
 
 ## La GPU
 
