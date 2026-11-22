@@ -24,3 +24,10 @@ gpu/*.txt
 
 # privado: captura del escritorio del autor, solo de fondo para las maquetas
 diseno/ref-escritorio.png
+
+# sysroot de Android (se monta con montar-sysroot.sh) y codigo de terceros
+sysroot/
+sysroot-fuentes/bionic/
+terceros/luajit/
+pruebas/hola-bionic
+__pycache__/

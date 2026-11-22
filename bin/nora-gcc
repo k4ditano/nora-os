@@ -1,0 +1,27 @@
+#!/bin/sh
+# nora-gcc: compila programas de Android 4.4 (bionic) para la RG35XX sin el NDK.
+# Cabeceras de bionic android-4.4.2 + librerias sacadas de la propia consola,
+# softfp (el ABI de ese Android), enlazador /system/bin/linker y hash sysv.
+# Uso como gcc:  nora-gcc -O2 -o prog prog.c [-shared] [-lGLESv2 ...]
+D=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+S=$D/sysroot
+TC=${NORA_TC:-$HOME/rg35xx-kernel/armv7-eabihf--glibc--stable/bin/arm-linux-gcc}
+GCCINC=$($TC -print-file-name=include)
+LIBGCC=$($TC -print-libgcc-file-name)
+# -fPIC siempre: el libc de Android (-Bsymbolic) no admite R_ARM_COPY, asi que
+# los ejecutables van como PIE, como en Android desde 4.1
+COMUN="-nostdinc -isystem $GCCINC -isystem $S/usr/include -D__ANDROID__ -DANDROID -marm -mfloat-abi=softfp -mfpu=neon -fPIC"
+enlaza=1; compartida=0
+for a in "$@"; do
+    case "$a" in -c|-S|-E|-M|-MM) enlaza=0;; -shared) compartida=1;; esac
+done
+if [ $enlaza = 0 ]; then
+    exec $TC $COMUN "$@"
+fi
+FIN="-L$S/usr/lib -Wl,--hash-style=sysv -Wl,-z,noexecstack -Wl,--allow-shlib-undefined \
+     -Wl,--start-group -lc -lm -ldl $LIBGCC -Wl,--end-group"
+if [ $compartida = 1 ]; then
+    exec $TC $COMUN -nostdlib "$@" $FIN
+else
+    exec $TC $COMUN -nostdlib -pie -Wl,--dynamic-linker=/system/bin/linker $S/usr/lib/crtbegin.o "$@" $FIN
+fi
