@@ -6,6 +6,7 @@
 -- Tambien atiende al PC (nora-puente): el nucleo le pasa cada linea JSON que
 -- llega en app.mensaje(linea).
 local json = require "json"
+local function manda(t) nora.enviar(json.escribe(t)) end   -- una linea JSON al PC
 local CLARO, TENUE, PANEL, RIEL = 0xf3f4f8, 0x8b90a5, 0x20232f, 0x2b2f3f
 local VERDE, AMBAR, ROJO, NORA = 0x34d399, 0xfbbf24, 0xf87171, 0x8b7cf6
 local SONIDOS = os.getenv("NORA_SONIDOS") or "/tmp/nora/sonidos"
@@ -109,6 +110,36 @@ local function lineas(s, fuente, w, n)
   return out
 end
 
+-- como lineas(), pero parte tambien las palabras que no caben (una orden, una ruta larga)
+local function envolver(s, fuente, w, n)
+  local out, linea = {}, ""
+  local function cierra()
+    out[#out + 1] = linea
+    linea = ""
+  end
+  for palabra in s:gsub("%s+", " "):gmatch("%S+") do
+    local prueba = linea == "" and palabra or (linea .. " " .. palabra)
+    if nora.ancho(prueba, fuente) <= w then linea = prueba
+    else
+      if linea ~= "" then cierra() end
+      while nora.ancho(palabra, fuente) > w do      -- trocear letra a letra
+        local i = 1
+        while i < #palabra do
+          local j = i + 1
+          while j <= #palabra and palabra:byte(j) >= 128 and palabra:byte(j) < 192 do j = j + 1 end
+          if nora.ancho(palabra:sub(1, j - 1), fuente) > w then break end
+          i = j
+        end
+        out[#out + 1] = palabra:sub(1, i - 1)
+        palabra = palabra:sub(i)
+      end
+      linea = palabra
+    end
+  end
+  if linea ~= "" then cierra() end
+  return out
+end
+
 local function guarda_avisos()             -- para la app Avisos y la insignia del inicio
   nora.guardar("avisos.lista", json.escribe(historial))
   nora.guardar("avisos.sin_leer", tostring(sin_leer))
@@ -169,8 +200,89 @@ local function pinta_aviso(t)
   if #cola > 0 then nora.texto("+" .. #cola, x + w - 24, y + 12, "peq", TENUE, 1, "der") end
 end
 
+---------------------------------------------------------------- permisos
+-- Claude Code pide permiso (hook PermissionRequest -> nora-puente -> aqui).
+-- A permite, B rechaza, Y permite siempre, X enseña la orden entera (▲ ▼).
+local permisos, permiso, t_permiso, expandido, desplaza = {}, nil, -10, false, 0
+local VERDE_B, ROJO_B = 0x34d399, 0xf87171
+
+local function siguiente_permiso()
+  permiso = table.remove(permisos, 1)
+  expandido, desplaza = false, 0
+  if permiso then
+    t_permiso = nora.ahora()
+    permiso.lineas = envolver(permiso.orden, "peq", 532, 40)
+    suena("aviso")
+  end
+end
+
+local function contestar(ok, siempre)
+  if not permiso then return end
+  manda({tipo = "respuesta", id = permiso.id, ok = ok, siempre = siempre or false})
+  suena(ok and "abrir" or "volver")
+  siguiente_permiso()
+end
+
+local function pinta_permiso(t)
+  if not permiso then return end
+  local edad = t - t_permiso
+  if edad > (permiso.plazo or 60) then siguiente_permiso(); return end   -- el PC ya no espera
+  local p = suave(edad / 0.28)
+  nora.caja(-2, -2, 644, 484, 0, 0x0e1017, 0.75 * p)
+  local x, w = 24, 592
+  local vistas = expandido and 9 or 4
+  local n = math.min(#permiso.lineas, vistas)
+  local h = 196 + n * 24 + (permiso.detalle ~= "" and 26 or 0)
+  local y = (480 - h) / 2 + 30 * (1 - p)
+  nora.sombra(x, y + 10, w, h, 26, 24, 0x000000, 0.6 * p)
+  nora.caja(x, y, w, h, 26, PANEL)
+  nora.caja(x + 26, y, w - 52, 4, 2, AMBAR, 0.9)       -- filo ambar: algo pide tu permiso
+  -- quien y que
+  nora.circulo(x + 46, y + 48, 22, AMBAR, 0.22)
+  nora.icono("shield", x + 46, y + 48, AMBAR, 1)
+  nora.texto("Claude pide permiso", x + 84, y + 22, "med", CLARO)
+  local sub = permiso.herramienta .. (permiso.carpeta ~= "" and ("  ·  " .. permiso.carpeta) or "")
+  nora.texto(lineas(sub, "peq", w - 110, 1)[1] or "", x + 84, y + 54, "peq", TENUE)
+  if #permisos > 0 then nora.texto("+" .. #permisos, x + w - 24, y + 22, "peq", TENUE, 1, "der") end
+  -- la orden, en su caja
+  local cy = y + 90
+  nora.caja(x + 20, cy, w - 40, n * 24 + 20, 14, 0x0e1017)
+  local primera = expandido and math.min(desplaza, math.max(0, #permiso.lineas - vistas)) or 0
+  for i = 1, n do
+    local l = permiso.lineas[primera + i]
+    if l then nora.texto(l, x + 36, cy + 8 + (i - 1) * 24, "peq", 0xe6e8f0) end
+  end
+  if #permiso.lineas > vistas then
+    local queda = #permiso.lineas - primera - vistas
+    if queda > 0 or not expandido then
+      nora.texto(expandido and ("y " .. queda .. " más abajo") or ("… " .. (#permiso.lineas - vistas) .. " líneas más"),
+                 x + w - 36, cy + n * 24 - 2, "peq", TENUE, 1, "der")
+    end
+  end
+  cy = cy + n * 24 + 32
+  if permiso.detalle ~= "" then
+    nora.texto(lineas(permiso.detalle, "peq", w - 56, 1)[1] or "", x + 28, cy, "peq", TENUE)
+    cy = cy + 26
+  end
+  -- botones
+  local botones = {{"A", "Permitir", VERDE_B}, {"B", "Rechazar", ROJO_B}}
+  if permiso.siempre then botones[#botones + 1] = {"Y", "Siempre", NORA} end
+  if #permiso.lineas > 4 then botones[#botones + 1] = {"X", expandido and "Menos" or "Ver todo", TENUE} end
+  local bx = x + 24
+  for _, b in ipairs(botones) do
+    local bw = nora.ancho(b[2], "peq") + 60
+    nora.caja(bx, cy + 4, bw, 40, 20, b[3], 0.16)
+    nora.circulo(bx + 22, cy + 24, 13, b[3])
+    nora.texto(b[1], bx + 22, cy + 13, "peq", 0x0e1017, 1, "centro")
+    nora.texto(b[2], bx + 42, cy + 13, "peq", CLARO)
+    bx = bx + bw + 12
+  end
+  -- lo que queda para que decida la terminal
+  local resta = math.max(0, 1 - edad / (permiso.plazo or 60))
+  nora.caja(x + 24, y + h - 10, (w - 48) * resta, 3, 2, AMBAR, 0.6)
+end
+
 ---------------------------------------------------------------- el PC
-local function manda(t) nora.enviar(json.escribe(t)) end
 local function avisa_ajuste()            -- el PC se entera de lo que cambia aqui
   manda({tipo = "ajuste", volumen = math.floor(estado.vol * 100 + 0.5), brillo = math.floor(estado.brillo * 100 + 0.5)})
 end
@@ -191,6 +303,18 @@ function ATIENDE.aviso(m)                -- {tipo=aviso, titulo=, texto=, app=, 
   local function txt(v) return type(v) == "string" and v or "" end
   avisar({titulo = txt(m.titulo), texto = txt(m.texto), app = txt(m.app),
           accion = type(m.accion) == "string" and m.accion ~= "" and m.accion or nil, id = m.id})
+end
+function ATIENDE.permiso(m)              -- {tipo=permiso, id, herramienta, orden, detalle, carpeta, siempre, plazo}
+  local function txt(v) return type(v) == "string" and v or "" end
+  if m.id == nil then return end
+  permisos[#permisos + 1] = {id = m.id, herramienta = txt(m.herramienta) ~= "" and txt(m.herramienta) or "Herramienta",
+                             orden = txt(m.orden), detalle = txt(m.detalle), carpeta = txt(m.carpeta),
+                             siempre = m.siempre == true, plazo = type(m.plazo) == "number" and m.plazo or 60}
+  if not permiso then siguiente_permiso() end
+end
+function ATIENDE.permiso_cancelado(m)    -- la terminal ya decidio (o el hook se canso de esperar)
+  if permiso and permiso.id == m.id then siguiente_permiso(); return end
+  for i, p in ipairs(permisos) do if p.id == m.id then table.remove(permisos, i); break end end
 end
 function ATIENDE.ajuste(m)               -- {tipo=ajuste, volumen=0..100, brillo=0..100}
   if type(m.volumen) == "number" then estado.vol = nora.volumen(math.max(0, math.min(1, m.volumen / 100))) end
@@ -227,6 +351,7 @@ end
 function app.enlace(conectado)
   estado.puente = conectado
   contado = {}
+  if not conectado then permisos, permiso = {}, nil end   -- sin PC no hay a quien contestar
   if conectado then
     estado.vol, estado.brillo = nora.volumen(), nora.brillo()
     avisa_ajuste()
@@ -239,12 +364,22 @@ function app.pinta(t, con_barra, id)
   if con_barra then barra(t) end
   menu(t)
   pinta_aviso(t)
+  pinta_permiso(t)
 end
 
 -- con el menu abierto, todo es del sistema; con un aviso, A y B (el resto sigue yendo a la app)
-function app.abierto() return abierto or (actual ~= nil and not t_fuera) end
+function app.abierto() return abierto or permiso ~= nil or (actual ~= nil and not t_fuera) end
 
 function app.boton(b)
+  if permiso then                          -- un permiso se lo queda todo hasta que se conteste
+    if b == "A" then contestar(true)
+    elseif b == "B" then contestar(false)
+    elseif b == "Y" and permiso.siempre then contestar(true, true)
+    elseif b == "X" and #permiso.lineas > 4 then expandido = not expandido; desplaza = 0; suena("mover")
+    elseif expandido and b == "ABAJO" then desplaza = math.min(desplaza + 1, math.max(0, #permiso.lineas - 9))
+    elseif expandido and b == "ARRIBA" then desplaza = math.max(0, desplaza - 1) end
+    return true
+  end
   if not abierto and actual and not t_fuera and b ~= "MENU" then
     if b == "B" then quitar_aviso(); suena("volver"); return true end
     if b == "A" then
