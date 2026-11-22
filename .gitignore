@@ -37,3 +37,5 @@ nucleo/nora
 nucleo/atlas.h
 nucleo/atlas-vista.png
 sonidos/fuentes/
+arranque/pulsada
+arranque/soltar
