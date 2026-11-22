@@ -4,7 +4,7 @@
 # CFW/autostart/nora.sh. Todo lo que pasa va a /mnt/mmc/nora/arranque.log.
 #
 # Al salir Nora: 10 = apagar, 11 = reiniciar (se hace aqui, ordenado); 12 = a
-# GarlicOS (vuelve quien nos lanzo). Si se cae despues de funcionar un rato y
+# GarlicOS (vuelve quien nos lanzo); 13 = abrirla otra vez (se ha actualizado). Si se cae despues de funcionar un rato y
 # Nora arranca sola, se vuelve a abrir.
 N=/mnt/mmc/nora
 echo "-- $(date) arranque.sh en la raiz real (uptime $(busybox cut -d' ' -f1 /proc/uptime) s, modo ${NORA_MODO:-garlic})"
@@ -18,9 +18,11 @@ busybox dd if=$N/arranque.565 of=/dev/fb0 bs=1280 count=480 2>/dev/null
 sh $N/gpu/arrancar.sh
 busybox tail -4 $N/gpu/arrancar.log
 
-# 2. red por el cable USB con telnet (solo si existe $N/red-usb: deja el
-#    puerto en modo dispositivo, asi que el pincho Wi-Fi no tendra corriente)
-if [ -f $N/red-usb ]; then
+# 2. red por el cable USB, para hablar con el PC (nora-puente). Se quita con
+#    $N/sin-red (deja el puerto en modo dispositivo: un pincho Wi-Fi no tendria
+#    corriente). Telnet (una consola de root sin contrasena, para desarrollar)
+#    solo si existe $N/telnet.
+if [ ! -f $N/sin-red ]; then
   (
     A=/sys/class/android_usb/android0
     M=/sys/monitor/usb_port/config
@@ -31,8 +33,12 @@ if [ -f $N/red-usb ]; then
     sleep 2
     ifconfig rndis0 192.168.7.2 netmask 255.255.255.0 up
     cp $N/bin/busybox /tmp/busybox 2>/dev/null; chmod 755 /tmp/busybox
-    $N/bin/soltar /system/bin/busybox telnetd -F -l /system/bin/sh
-    echo "red USB lista: $(ifconfig rndis0 | busybox grep -o 'inet addr:[0-9.]*'), telnet"
+    if [ -f $N/telnet ]; then
+      $N/bin/soltar /system/bin/busybox telnetd -F -l /system/bin/sh
+      echo "red USB lista, con telnet"
+    else
+      echo "red USB lista (sin telnet: crea $N/telnet para tenerlo)"
+    fi
   ) &      # en segundo plano: Nora no espera a la red
 fi
 touch /tmp/nora-preparada
@@ -43,12 +49,12 @@ export NORA_APPS=$N/apps NORA_SONIDOS=$N/sonidos NORA_SUENA=$N/bin/suena
 export TZ=CET-1CEST,M3.5.0,M10.5.0/3
 export LD_LIBRARY_PATH=/tmp/gpu/lib NORA_HW=/tmp/gpu/hw
 export LD_PRELOAD="/tmp/gpu/lib/libnoralog.so /tmp/gpu/lib/libhardware.so"
-cp $N/bin/nora /tmp/gpu/bin/nora && chmod 755 /tmp/gpu/bin/nora
 # arrancar a tope; luego, a demanda (la bateria lo agradece)
 echo interactive > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
 while true; do
   echo "abro Nora (uptime $(busybox cut -d' ' -f1 /proc/uptime) s)"
   [ -f $N/nora.log ] && mv $N/nora.log $N/nora.log.1
+  cp $N/bin/nora /tmp/gpu/bin/nora && chmod 755 /tmp/gpu/bin/nora     # en cada vuelta: puede haberse actualizado
   T0=$(busybox date +%s)
   /tmp/gpu/bin/nora inicio > $N/nora.log 2>&1 &
   NP=$!
@@ -59,12 +65,14 @@ while true; do
   T1=$(busybox date +%s)
   echo "nora salio con $R tras $((T1 - T0)) s"
   # si ha durado mas de 20 s, o ha salido porque se le ha pedido, ha ido bien
-  case $R in 0|10|11|12) echo 0 > $N/fallos ;; *) [ $((T1 - T0)) -gt 20 ] && echo 0 > $N/fallos ;; esac
+  case $R in 0|10|11|12|13) echo 0 > $N/fallos ;; *) [ $((T1 - T0)) -gt 20 ] && echo 0 > $N/fallos ;; esac
   sync
   case $R in
     10) echo "apagando"; sync; reboot -p || busybox poweroff -f; sleep 30 ;;
     11) echo "reiniciando"; sync; reboot || busybox reboot -f; sleep 30 ;;
-    0|12) exit $R ;;
+    13) echo "Nora actualizada: se vuelve a abrir"; continue ;;
+    0) if [ "$NORA_MODO" = propio ]; then echo "Nora cerrada (o parada para actualizar): se vuelve a abrir"; continue; fi; exit $R ;;
+    12) exit $R ;;
     *) if [ "$NORA_MODO" = propio ] && [ $((T1 - T0)) -gt 20 ]; then
          echo "Nora se ha caido tras funcionar un rato: se vuelve a abrir"
          busybox tail -5 $N/nora.log

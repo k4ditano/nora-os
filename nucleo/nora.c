@@ -310,12 +310,13 @@ static int l_log(lua_State *l)
     return 0;
 }
 /* nora.salir([que]): cierra Nora. El codigo de salida le dice al arranque que hacer:
- * 10 apagar, 11 reiniciar, 12 volver a GarlicOS, 0 nada en especial */
+ * 10 apagar, 11 reiniciar, 12 volver a GarlicOS, 13 abrir Nora otra vez (actualizada), 0 nada */
 static int codigo_salida;
 static int l_salir(lua_State *l)
 {
     const char *q = luaL_optstring(l, 1, "");
-    codigo_salida = !strcmp(q, "apagar") ? 10 : !strcmp(q, "reiniciar") ? 11 : !strcmp(q, "garlic") ? 12 : 0;
+    codigo_salida = !strcmp(q, "apagar") ? 10 : !strcmp(q, "reiniciar") ? 11 : !strcmp(q, "garlic") ? 12
+                  : !strcmp(q, "relanzar") ? 13 : 0;
     seguir = 0;
     return 0;
 }

@@ -10,7 +10,7 @@ app.barra = true
 local json = require "json"
 local T = require "tema"
 local teclado = require "teclado"
-local OCULTAS = {inicio = true, sistema = true}
+local OCULTAS = {inicio = true, sistema = true, bienvenida = true}
 
 local todas = {}           -- id -> {id, nombre, icono, color, orden, carpeta}
 local elementos = {}       -- lo de arriba: {app = id} | {carpeta = nombre, apps = {id...}}
@@ -129,6 +129,9 @@ local function salir_de_carpeta()
 end
 
 function app.entrar()
+  -- estrenando Nora: primero la bienvenida (una vez)
+  local f = io.open(nora.apps .. "/../datos/bienvenida/hecho")
+  if f then f:close() elseif nora.es_carpeta(nora.apps .. "/bienvenida") then nora.abrir("bienvenida"); return end
   cargar(); leer_resumen()
   T.musica()
   t_vista = nora.ahora()

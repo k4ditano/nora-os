@@ -33,10 +33,36 @@ La RG35XX original lleva una PowerVR SGX544, pero ningún sistema la usaba: Anbe
 | `herramientas/` | telnet, subir archivos y capturar la pantalla de la consola desde el PC |
 | `diseno/` | maquetas de las pantallas de Nora y del extra de la barra (`maquetas.py`) |
 
-## Qué hace falta
+## Instalar Nora en una tarjeta (sin GarlicOS)
+
+Con la imagen **oficial de Anbernic** para la RG35XX original (descárgala tú: es de Anbernic y no se
+puede redistribuir), el núcleo compilado (`nucleo/construir.sh`) y las librerías de la GPU
+(`gpu/bajar-blobs.sh` y `gpu/construir-shims.sh`):
+
+```sh
+sudo python3 herramientas/crear-tarjeta.py --imagen RG35XX-oficial.img.xz --tarjeta /dev/sdX   # BORRA la tarjeta
+python3 herramientas/crear-tarjeta.py --imagen RG35XX-oficial.img --salida nora-os.img --tamano 16G
+```
+
+Graba la imagen de Anbernic, agranda la partición de juegos a toda la tarjeta (conservando lo que tenía),
+pone el arranque de Nora en `/misc/dmenu.bin` (el menú de serie queda de reserva: SELECT al encender) y
+copia Nora con busybox. La primera vez sale la bienvenida (tema, conectar con el PC, trucos).
+
+En una tarjeta que ya tiene GarlicOS: `arranque/arranque-propio.sh` (se deshace con `--quitar`).
+
+## Actualizar
+
+Con la consola conectada al PC por el cable y [`nora-puente`](https://github.com/k4ditano/nora-puente)
+corriendo: `nora-puente actualizar` manda lo que ha cambiado en el repo (núcleo, apps, librería, temas,
+sonidos, arranque) y relanza Nora en unos segundos. Sin telnet.
+
+La red por el cable está siempre (la usa el puente; `nora/sin-red` en la tarjeta la quita). El
+**telnet** (consola de root sin contraseña, para desarrollar) solo si existe `nora/telnet`.
+
+## Qué hace falta para desarrollar
 
 - Una RG35XX **original** (USB `10d6:10d6` en modo ADFU). **Nada de esto vale para las Plus/H/SP/2024**, que llevan Allwinner H700.
-- La tarjeta con GarlicOS (por ahora Nora se prueba encima) y la app `prototipos/usb/USB-Red.sh` en `Roms/APPS/`: pone el USB-C en modo red (la consola en `192.168.7.2`) con telnet.
+- Una tarjeta con Nora (arriba) y `nora/telnet` en ella para tener telnet (lo usan `arranque/actualizar.sh`, `herramientas/consola.py`…); o una con GarlicOS y la app `prototipos/usb/USB-Red.sh` en `Roms/APPS/`.
 - En el PC, la toolchain ARMv7 de Bootlin (glibc, gcc 5.4) y el kernel 3.10.37 preparado para compilar módulos.
 
 ## Hoja de ruta
@@ -44,7 +70,7 @@ La RG35XX original lleva una PowerVR SGX544, pero ningún sistema la usaba: Anbe
 1. **Núcleo** (siguiente): C + OpenGL ES 2.0 a 60 fps, LuaJIT dentro con la API `nora.*`, lanzador, barra de estado, avisos y menú rápido.
 2. **Puente y Bahía**: `nora-puente` en el PC y el extra «Nora» en la barra.
 3. **Que sirva de verdad**: aprobar permisos de Claude Code con A/B, música, atajos del escritorio.
-4. **Que viva sola**: arranque directo en Nora (SELECT = GarlicOS), Wi-Fi, batería, y una imagen propia para grabar.
+4. **Que viva sola** (hecho): arranque propio, energía, instalador, actualizar desde el PC. Falta: Wi-Fi, reposo profundo, RetroArch.
 
 ## Licencia
 

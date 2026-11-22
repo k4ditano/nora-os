@@ -40,3 +40,6 @@ sonidos/fuentes/
 arranque/pulsada
 arranque/soltar
 arranque/logo/boot_logo-garlic-original.bmp*
+
+# lo baja crear-tarjeta.py (busybox.net)
+herramientas/busybox-armv7l

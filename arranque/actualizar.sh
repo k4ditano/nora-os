@@ -36,6 +36,13 @@ fi
 
 # parar la Nora que corre (SIGTERM: sale limpia y devuelve el menu de GarlicOS)
 # y abrir la nueva, suelta de telnet, con el mismo entorno que arranque.sh
+# Si Nora arranca sola (es /misc/dmenu.bin), basta con pararla: su arranque la vuelve a abrir
+if python3 $H/consola.py $IP "$B grep -c 'Nora OS' /misc/dmenu.bin" | grep -q "^1"; then
+    orden "kill \$($B pidof nora) 2>/dev/null; true"
+    sleep 4
+    orden "$B pidof nora >/dev/null && echo 'Nora reiniciada (por su arranque propio)' || $B tail -5 $N/arranque.log"
+    exit 0
+fi
 orden "kill \$($B pidof nora) 2>/dev/null; sleep 1; kill -9 \$($B pidof nora) 2>/dev/null; true"
 orden "$N/bin/soltar /system/bin/sh -c 'export NORA_APPS=$N/apps NORA_SONIDOS=$N/sonidos NORA_SUENA=$N/bin/suena TZ=CET-1CEST,M3.5.0,M10.5.0/3 LD_LIBRARY_PATH=/tmp/gpu/lib NORA_HW=/tmp/gpu/hw LD_PRELOAD=\"/tmp/gpu/lib/libnoralog.so /tmp/gpu/lib/libhardware.so\"; cp $N/bin/nora /tmp/gpu/bin/nora; chmod 755 /tmp/gpu/bin/nora; exec /tmp/gpu/bin/nora inicio > $N/nora.log 2>&1'"
 sleep 2

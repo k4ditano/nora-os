@@ -8,6 +8,12 @@
 local json = require "json"
 local function manda(t) nora.enviar(json.escribe(t)) end   -- una linea JSON al PC
 local T = require "tema"                  -- colores, sonidos y estilo del tema elegido
+-- NORA_MODO=propio: Nora arranca sola (es /misc/dmenu.bin) y GarlicOS queda de reserva
+local MODO_PROPIO = os.getenv("NORA_MODO") == "propio"
+local function existe(r) local f = io.open(r); if f then f:close() end; return f ~= nil end
+local HAY_GARLIC = not MODO_PROPIO or existe("/misc/dmenu-garlic.bin")
+local HAY_ANBERNIC = MODO_PROPIO and not HAY_GARLIC and existe("/misc/dmenu-anbernic.bin")
+local energia, saliendo, apagando = nil, nil, nil   -- panel abierto; {que, t}; {t} por bateria
 
 local abierto, t_abre, t_cierra = false, -10, -10
 local fila, col = 1, 1                     -- fila 1 volumen, 2 brillo, 3 botones
@@ -354,25 +360,59 @@ ATIENDE["app.instalar"] = function(m)
     nora.log("instalar", tostring(id), "->", e)
     manda({tipo = "app.instalada", pedido = pedido, id = id, ok = false, error = e})
   end
-  if not id_valido(id) then return mal("id no valido") end
   local es_tema = m.clase == "tema"          -- un tema va a temas/<id>, no a apps/
-  local carpeta = (es_tema and T.carpeta_temas or nora.apps) .. "/" .. id
+  local es_nora = m.clase == "nora"          -- Nora misma: rutas dentro de /mnt/mmc/nora (bin/nora, lib/...)
+  if es_nora then id = "nora" elseif not id_valido(id) then return mal("id no valido") end
+  local carpeta = es_nora and (nora.apps .. "/..") or ((es_tema and T.carpeta_temas or nora.apps) .. "/" .. id)
   local va = instalando[pedido or ""]
   if not va then
-    va = {nueva = not nora.es_carpeta(carpeta), n = 0}
+    va = {nueva = not es_nora and not nora.es_carpeta(carpeta), n = 0, rutas = {}}
     instalando[pedido or ""] = va
-    if m.limpiar == true and not va.nueva then borra_todo(carpeta) end   -- la app entera, de cero
+    if m.limpiar == true and not va.nueva and not es_nora then borra_todo(carpeta) end   -- la app entera, de cero
   end
   for nombre, datos in pairs(type(m.archivos) == "table" and m.archivos or {}) do
     if not ruta_valida(nombre) or type(datos) ~= "string" then return mal("archivo no valido: " .. tostring(nombre)) end
     local ok, e = nora.escribir(carpeta .. "/" .. nombre, nora.de64(datos))
     if not ok then return mal(nombre .. ": " .. tostring(e)) end
     va.n = va.n + 1
+    va.rutas[#va.rutas + 1] = nombre
+  end
+  -- archivos grandes, a trozos: partes = {["sonidos/x.wav"] = {i = 1, de = 9, datos = base64}}
+  for nombre, p in pairs(type(m.partes) == "table" and m.partes or {}) do
+    if not ruta_valida(nombre) or type(p) ~= "table" or type(p.datos) ~= "string" then
+      return mal("trozo no valido: " .. tostring(nombre))
+    end
+    local destino = carpeta .. "/" .. nombre
+    if p.i == 1 then nora.escribir(destino .. ".parte", "") end
+    local f = io.open(destino .. ".parte", "ab")
+    if not f then return mal(nombre .. ": no se puede escribir") end
+    f:write(nora.de64(p.datos)); f:close()
+    if p.i == p.de then
+      os.remove(destino)
+      if not os.rename(destino .. ".parte", destino) then return mal(nombre .. ": no se puede poner") end
+      va.n = va.n + 1
+      va.rutas[#va.rutas + 1] = nombre
+    end
   end
   if m.fin ~= true then return end
   instalando[pedido or ""] = nil
   nombres[id] = nil
   nora.log("app instalada desde el PC:", id, va.n, "archivos", va.nueva and "(nueva)" or "")
+  if es_nora then
+    -- el arranque propio vive en /misc/dmenu.bin: si ha cambiado, se copia alli
+    for _, r in ipairs(va.rutas) do
+      if r == "dmenu-nora.sh" and MODO_PROPIO then
+        local d = nora.apps .. "/../dmenu-nora.sh"
+        os.execute("mount -o remount,rw /misc && /system/bin/sh -n " .. d .. " && cp " .. d ..
+                   " /misc/dmenu.bin; sync; mount -o remount,ro /misc")
+      end
+    end
+    nora.log("Nora actualizada desde el PC:", va.n, "archivos")
+    local relanza = m.abrir ~= false and MODO_PROPIO
+    manda({tipo = "app.instalada", pedido = pedido, id = "nora", ok = true, archivos = va.n, relanza = relanza})
+    if relanza then saliendo = {que = "relanzar", t = nora.ahora()} end   -- Nora nueva, sin reiniciar la consola
+    return
+  end
   if es_tema then
     -- abrir = ponerlo; si es el que esta puesto, se vuelve a leer en todas partes
     if m.abrir == true then T.poner(id) elseif T.id == id then nora.guardar("tema.activo", id) end
@@ -475,15 +515,12 @@ end
 ---------------------------------------------------------------- energia
 -- El boton de encendido es del nucleo: corto = reposo; largo = este panel (app.energia).
 -- NORA_MODO=propio: Nora arranca sola (es /misc/dmenu.bin) y GarlicOS queda de reserva.
-local MODO_PROPIO = os.getenv("NORA_MODO") == "propio"
-local function existe(r) local f = io.open(r); if f then f:close() end; return f ~= nil end
-local HAY_GARLIC = not MODO_PROPIO or existe("/misc/dmenu-garlic.bin")
-local energia, saliendo, apagando = nil, nil, nil   -- panel abierto; {que, t}; {t} por bateria
 local bateria_avisada = false
 
 local function opciones_energia()
   local o = {{"power", "Apagar", "apagar"}, {"next", "Reiniciar", "reiniciar"}, {"moon", "Reposo", "reposo"}}
-  if HAY_GARLIC then o[#o + 1] = {"gamepad", MODO_PROPIO and "Ir a GarlicOS (juegos)" or "Volver a GarlicOS", "garlic"} end
+  if HAY_GARLIC then o[#o + 1] = {"gamepad", MODO_PROPIO and "Ir a GarlicOS (juegos)" or "Volver a GarlicOS", "garlic"}
+  elseif HAY_ANBERNIC then o[#o + 1] = {"gamepad", "Ir al menú de Anbernic (juegos)", "garlic"} end
   o[#o + 1] = {"times", "Cancelar", "cancelar"}
   return o
 end
@@ -565,7 +602,8 @@ local function pinta_energia(t)
     local p = math.min(1, (ahora - saliendo.t) / 0.6)
     nora.caja(-2, -2, 644, 484, 0, 0x000000, p)
     local txt = saliendo.que == "apagar" and "Apagando..." or saliendo.que == "reiniciar" and "Reiniciando..."
-                or "Abriendo GarlicOS..."
+                or saliendo.que == "relanzar" and "Actualizando Nora..."
+                or (HAY_GARLIC and "Abriendo GarlicOS..." or "Abriendo el menú de Anbernic...")
     nora.texto(txt, 320, 225, "med", 0xffffff, p, "centro")
     if ahora - saliendo.t > 0.9 then nora.salir(saliendo.que) end
   end

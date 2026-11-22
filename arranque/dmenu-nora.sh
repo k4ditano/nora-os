@@ -2,14 +2,17 @@
 # Nora OS: el arranque propio, sin pasar por GarlicOS.
 #
 # Es /misc/dmenu.bin: lo ejecuta /system/dmenu/dmenu_ln (de Anbernic) al
-# encender. El de GarlicOS queda guardado en /misc/dmenu-garlic.bin y se usa:
+# encender. El de antes queda de reserva: /misc/dmenu-garlic.bin (GarlicOS) o,
+# en una tarjeta hecha con herramientas/crear-tarjeta.py, /misc/dmenu-anbernic.bin
+# (el menú de serie). Se usa:
 #   - con SELECT pulsado al encender
 #   - si Nora falla 3 veces seguidas al arrancar (ese encendido; el siguiente lo reintenta)
 #   - si Nora lo pide (Energia > Ir a GarlicOS)
-# Si tampoco hay GarlicOS: modo rescate (red por el cable USB y telnet).
+# Si no hay ninguno: modo rescate (red por el cable USB y telnet).
 # Ponerlo: arranque/arranque-propio.sh · quitarlo: arranque/arranque-propio.sh --quitar
 N=/mnt/mmc/nora
 GARLIC=/misc/dmenu-garlic.bin
+ANBERNIC=/misc/dmenu-anbernic.bin
 LOG=$N/arranque.log
 FALLOS=$N/fallos
 
@@ -27,8 +30,8 @@ rescate() {
   while true; do sleep 60; done
 }
 garlic() {
-  echo "$1: arranca GarlicOS" >> $LOG; sync
-  [ -f $GARLIC ] && exec /system/bin/sh $GARLIC
+  if [ -f $GARLIC ]; then echo "$1: arranca GarlicOS" >> $LOG; sync; exec /system/bin/sh $GARLIC; fi
+  if [ -f $ANBERNIC ]; then echo "$1: arranca el menú de Anbernic" >> $LOG; sync; exec $ANBERNIC; fi
   rescate
 }
 
