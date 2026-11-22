@@ -2,7 +2,7 @@
 -- imagenes SVG y PNG, cruceta mantenida (nora.pulsado), sonido propio,
 -- record guardado en la tarjeta (nora.salvar/cargar) y estados menu/juego/fin.
 local W, H = nora.W, nora.H
-local SONIDOS = os.getenv("NORA_SONIDOS") or "/mnt/mmc/nora/sonidos"
+local SONIDOS = os.getenv("NORA_SONIDOS")
 
 -- imagenes: se cargan una vez, al abrir la app (rutas relativas a esta carpeta)
 local NAVE = assert(nora.imagen("img/nave.svg", {ancho = 56}))

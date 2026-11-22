@@ -14,7 +14,7 @@ local function empezar()
 end
 
 function app.boton(b)
-  if b == "B" and estado ~= "pausa" then nora.volver(); return end
+  if b == "B" and estado ~= "pausa" then nora.volver(); return end   -- en la pausa, B es "atrás" (al menú del juego)
   if estado == "menu" or estado == "fin" then
     if b == "A" or b == "START" then empezar() end
   elseif estado == "juego" then

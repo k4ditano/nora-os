@@ -8,7 +8,7 @@ las librerías estándar (`math`, `string`, `table`, `io`, `os`).
 
 | Función | Cuándo |
 |---|---|
-| `app.entrar()` | al abrirse la app (después de ejecutar `app.lua`) |
+| `app.entrar()` | al abrirse la app, después de ejecutar `app.lua` entero (que se ejecuta de nuevo en cada apertura y recarga) |
 | `app.actualiza(dt)` | cada fotograma, antes de pintar; `dt` = segundos desde el anterior (~0,016) |
 | `app.pinta(t)` | cada fotograma; `t` = segundos desde que se abrió la app. Aquí solo se dibuja |
 | `app.boton(b)` | se pulsa un botón (ver *Botones*) |
@@ -27,6 +27,7 @@ las librerías estándar (`math`, `string`, `table`, `io`, `os`).
 
 - `nora.W`, `nora.H` → 640, 480. El origen (0,0) es arriba a la izquierda; x a la derecha, y hacia abajo.
 - 60 fotogramas por segundo como mucho.
+- La pantalla es de 16 bits (RGB565): degradados suaves y colores muy oscuros se ven a escalones. Sin sincronía vertical todavía: en movimiento rápido puede verse algún corte horizontal.
 - Colores: número `0xRRGGBB` o texto `"#rrggbb"`. Casi todas las funciones aceptan
   detrás un `alfa` de 0 a 1 (por defecto 1).
 
@@ -42,7 +43,7 @@ las librerías estándar (`math`, `string`, `table`, `io`, `os`).
 | `nora.texto(s, x, y [, fuente, color, alfa, alinea])` → ancho | texto; `y` es la parte de arriba de la línea. `alinea`: `"izq"` (defecto), `"centro"`, `"der"` (respecto a `x`) |
 | `nora.ancho(s [, fuente])` → px | lo que mide un texto |
 | `nora.alto(fuente)` → px | alto de línea de una fuente |
-| `nora.icono(nombre, cx, cy [, color, alfa])` → bool | icono de 38 px centrado en (cx, cy); `false` si no existe |
+| `nora.icono(nombre, cx, cy [, color, alfa])` → bool | icono centrado en (cx, cy), siempre de 38 px (no se escala); `false` si no existe. Para otros tamaños, una imagen SVG |
 | `nora.recorte(x, y, w, h)` / `nora.recorte()` | a partir de aquí solo se pinta dentro de ese rectángulo (listas con scroll); sin argumentos se quita. Se quita solo al acabar el fotograma |
 
 **Fuentes** (Inter): `"peq"` 24 px de línea, `"med"` 38, `"tit"` 54 (negrita), `"gra"` 113 (números grandes).
@@ -105,8 +106,9 @@ Nombres: `"A" "B" "X" "Y" "L" "R" "L2" "R2" "SELECT" "START" "ARRIBA" "ABAJO" "I
 
 - `nora.suena(wav [, volumen])`: efecto, se mezcla con lo que suene. `volumen` 0..1.
 - `nora.musica(wav [, volumen])`: música de fondo en bucle (una sola; cambia con fundido). `nora.musica()` la para.
-- Rutas relativas a la carpeta de la app; los sonidos del sistema están en
-  `os.getenv("NORA_SONIDOS")`: `abrir mover menu volver pasar-izq pasar-der aviso risa` (`.wav`).
+- Rutas relativas a la carpeta de la app. Los sonidos del sistema, siempre así:
+  `local SONIDOS = os.getenv("NORA_SONIDOS")` y luego `nora.suena(SONIDOS .. "/mover.wav")`.
+  Hay: `abrir mover menu volver pasar-izq pasar-der aviso risa` (`.wav`).
 - WAV PCM de 16 bits, mono o estéreo, a cualquier frecuencia. Cada WAV se lee una vez y queda en memoria (cambiar el archivo con la app abierta no cambia el sonido hasta reiniciar Nora): usa nombres nuevos si lo cambias.
 
 ## Guardar partidas
@@ -119,7 +121,7 @@ Nombres: `"A" "B" "X" "Y" "L" "R" "L2" "R2" "SELECT" "START" "ARRIBA" "ABAJO" "I
   nora.salvar("partida", json.escribe({nivel = 3, vidas = 2}))
   local p = json.lee(nora.cargar("partida") or "") or {nivel = 1, vidas = 3}
   ```
-- Se escribe de golpe (nunca queda medio archivo). Sobrevive a apagar y a reinstalar la app.
+- Se escribe de golpe (nunca queda medio archivo). Sobrevive a apagar, a reinstalar la app y a `instalar --limpiar`; desde el PC se borra con `nora-puente borrar-datos <id>`.
 
 ## Tiempo, azar y otros
 

@@ -384,6 +384,19 @@ ATIENDE["app.borrar"] = function(m)      -- {tipo="app.borrar", pedido, id}
   end
   manda({tipo = "app.borrada", pedido = m.pedido, id = m.id, ok = ok and true or false})
 end
+ATIENDE["app.abrir"] = function(m)       -- {tipo="app.abrir", pedido, id}: luego llega app.abierta / app.error
+  local ok = type(m.id) == "string" and (m.id == "inicio" or id_valido(m.id)) and nora.es_carpeta(nora.apps .. "/" .. m.id)
+  manda({tipo = "app.abriendo", pedido = m.pedido, id = m.id, ok = ok and true or false})
+  if ok then nora.abrir(m.id) end
+end
+ATIENDE["app.borrar_datos"] = function(m) -- {tipo="app.borrar_datos", pedido, id}: lo de nora.salvar
+  local n = 0
+  if id_valido(m.id) then
+    local dir = nora.apps .. "/../datos/" .. m.id
+    if nora.es_carpeta(dir) then n = #nora.lista(dir); borra_todo(dir) end
+  end
+  manda({tipo = "app.datos_borrados", pedido = m.pedido, id = m.id, archivos = n})
+end
 ATIENDE.captura = function(m)            -- {tipo="captura", pedido} -> el nucleo manda la pantalla en PNG
   nora.captura(type(m.pedido) == "string" and m.pedido or "")
 end

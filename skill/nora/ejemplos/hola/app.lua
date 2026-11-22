@@ -3,10 +3,11 @@
 -- y cada vez que guardes este archivo, la consola la recarga.
 local x, y, vx, vy = 320, 240, 140, 110
 local COLOR = 0xf59e0b
+local SONIDOS = os.getenv("NORA_SONIDOS")
 
 function app.boton(b)
   if b == "B" then nora.volver() end
-  if b == "A" then vx, vy = -vx, -vy; nora.suena(nora.carpeta .. "/../../sonidos/mover.wav") end
+  if b == "A" then vx, vy = -vx, -vy; nora.suena(SONIDOS .. "/mover.wav") end
 end
 
 function app.actualiza(dt)
