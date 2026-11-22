@@ -30,6 +30,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <signal.h>
 #include <dirent.h>
 #include <time.h>
@@ -53,7 +54,7 @@
 #include "sonido.h"
 #include "enlace.h"
 
-#define VERSION "0.3"
+#define VERSION "0.4"
 
 static volatile int seguir = 1;
 static void parar(int s) { (void)s; seguir = 0; }
@@ -403,13 +404,76 @@ static int l_poner_hora(lua_State *l)   /* segundos desde 1970 (UTC): reloj del 
     return 1;
 }
 
+/* ---- archivos: para instalar apps desde el PC ---- */
+static int l_de64(lua_State *l)     /* base64 -> bytes */
+{
+    size_t n;
+    const unsigned char *s = (const unsigned char *)luaL_checklstring(l, 1, &n);
+    static signed char tabla[256];
+    if (!tabla['B']) {
+        memset(tabla, -1, sizeof tabla);
+        const char *a = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (int i = 0; i < 64; i++) tabla[(unsigned char)a[i]] = (signed char)i;
+        tabla['-'] = 62; tabla['_'] = 63;
+    }
+    luaL_Buffer b;
+    luaL_buffinit(l, &b);
+    unsigned v = 0;
+    int bits = 0;
+    for (size_t i = 0; i < n; i++) {
+        int c = tabla[s[i]];
+        if (c < 0) continue;              /* '=', saltos de linea... */
+        v = (v << 6) | (unsigned)c;
+        bits += 6;
+        if (bits >= 8) { bits -= 8; luaL_addchar(&b, (char)((v >> bits) & 0xff)); }
+    }
+    luaL_pushresult(&b);
+    return 1;
+}
+static void crear_carpetas(const char *ruta)   /* mkdir -p de la carpeta de ruta */
+{
+    char c[512];
+    snprintf(c, sizeof c, "%s", ruta);
+    for (char *p = c + 1; *p; p++)
+        if (*p == '/') { *p = 0; mkdir(c, 0755); *p = '/'; }
+}
+static int l_escribir(lua_State *l) /* escribe entero (a .tmp y renombra: nadie lee medio archivo) */
+{
+    const char *ruta = luaL_checkstring(l, 1);
+    size_t n;
+    const char *datos = luaL_checklstring(l, 2, &n);
+    char tmp[540];
+    crear_carpetas(ruta);
+    snprintf(tmp, sizeof tmp, "%s.tmp", ruta);
+    FILE *f = fopen(tmp, "wb");
+    int ok = f && fwrite(datos, 1, n, f) == n;
+    if (f && fclose(f)) ok = 0;
+    if (ok && rename(tmp, ruta)) ok = 0;
+    if (!ok) { lua_pushnil(l); lua_pushstring(l, strerror(errno)); unlink(tmp); return 2; }
+    lua_pushboolean(l, 1);
+    return 1;
+}
+static int l_borrar(lua_State *l)   /* un archivo o una carpeta vacia */
+{
+    const char *ruta = luaL_checkstring(l, 1);
+    lua_pushboolean(l, unlink(ruta) == 0 || rmdir(ruta) == 0);
+    return 1;
+}
+static int l_es_carpeta(lua_State *l)
+{
+    struct stat st;
+    lua_pushboolean(l, stat(luaL_checkstring(l, 1), &st) == 0 && S_ISDIR(st.st_mode));
+    return 1;
+}
+
 static const luaL_Reg API[] = {
     {"fondo", l_fondo}, {"caja", l_caja}, {"sombra", l_sombra}, {"circulo", l_circulo}, {"texto", l_texto},
     {"icono", l_icono}, {"ancho", l_ancho}, {"alto", l_alto}, {"ahora", l_ahora}, {"suena", l_suena},
     {"musica", l_musica}, {"log", l_log}, {"salir", l_salir}, {"lista", l_lista}, {"abrir", l_abrir}, {"volver", l_volver},
     {"app", l_app}, {"bateria", l_bateria}, {"enlace", l_enlace}, {"brillo", l_brillo},
     {"volumen", l_volumen}, {"guardar", l_guardar}, {"dato", l_dato}, {"enviar", l_enviar},
-    {"conectado", l_conectado}, {"poner_hora", l_poner_hora}, {0, 0}};
+    {"conectado", l_conectado}, {"poner_hora", l_poner_hora}, {"de64", l_de64}, {"escribir", l_escribir},
+    {"borrar", l_borrar}, {"es_carpeta", l_es_carpeta}, {0, 0}};
 
 static int traza(lua_State *l)
 {

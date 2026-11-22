@@ -322,9 +322,66 @@ function ATIENDE.ajuste(m)               -- {tipo=ajuste, volumen=0..100, brillo
   avisa_ajuste()                          -- contesta con lo que ha quedado de verdad
 end
 
--- el PC se entera de que cambia la app abierta o la bateria
-local contado = {}
+-- apps desde el PC: {tipo="app.instalar", pedido, id, archivos={["app.lua"]=base64...}, fin, abrir}
+-- Una app grande llega en varios mensajes del mismo pedido; con fin=true se contesta
+-- {tipo="app.instalada", pedido, id, ok, nueva, archivos} y se recarga si esta abierta.
 local nombres = {}
+local instalando = {}                    -- pedido -> {nueva=, n=}
+local function id_valido(id)
+  return type(id) == "string" and id:match("^[%w_%-]+$") and id ~= "sistema"
+end
+local function ruta_valida(r)            -- "app.lua", "sonidos/salto.wav"; nada de .. ni /
+  if type(r) ~= "string" or r == "" or r:sub(1, 1) == "/" then return false end
+  for trozo in r:gmatch("[^/]+") do
+    if trozo == ".." or trozo == "." or not trozo:match("^[%w_%-%.]+$") then return false end
+  end
+  return true
+end
+local function borra_todo(ruta)          -- rm -r
+  if nora.es_carpeta(ruta) then
+    for _, n in ipairs(nora.lista(ruta)) do borra_todo(ruta .. "/" .. n) end
+  end
+  nora.borrar(ruta)
+end
+ATIENDE["app.instalar"] = function(m)
+  local id, pedido = m.id, m.pedido
+  local function mal(e)
+    instalando[pedido or ""] = nil
+    nora.log("instalar", tostring(id), "->", e)
+    manda({tipo = "app.instalada", pedido = pedido, id = id, ok = false, error = e})
+  end
+  if not id_valido(id) then return mal("id de app no valido") end
+  local carpeta = nora.apps .. "/" .. id
+  local va = instalando[pedido or ""]
+  if not va then
+    va = {nueva = not nora.es_carpeta(carpeta), n = 0}
+    instalando[pedido or ""] = va
+    if m.limpiar == true and not va.nueva then borra_todo(carpeta) end   -- la app entera, de cero
+  end
+  for nombre, datos in pairs(type(m.archivos) == "table" and m.archivos or {}) do
+    if not ruta_valida(nombre) or type(datos) ~= "string" then return mal("archivo no valido: " .. tostring(nombre)) end
+    local ok, e = nora.escribir(carpeta .. "/" .. nombre, nora.de64(datos))
+    if not ok then return mal(nombre .. ": " .. tostring(e)) end
+    va.n = va.n + 1
+  end
+  if m.fin ~= true then return end
+  instalando[pedido or ""] = nil
+  nombres[id] = nil
+  nora.log("app instalada desde el PC:", id, va.n, "archivos", va.nueva and "(nueva)" or "")
+  manda({tipo = "app.instalada", pedido = pedido, id = id, ok = true, nueva = va.nueva, archivos = va.n})
+  local abierta = nora.app()
+  if abierta == id or m.abrir == true then nora.abrir(id)              -- recarga en caliente
+  elseif va.nueva and abierta == "inicio" then nora.abrir("inicio") end  -- que salga en el inicio
+end
+ATIENDE["app.borrar"] = function(m)      -- {tipo="app.borrar", pedido, id}
+  local ok = id_valido(m.id) and m.id ~= "inicio" and nora.es_carpeta(nora.apps .. "/" .. m.id)
+  if ok then
+    borra_todo(nora.apps .. "/" .. m.id)
+    nombres[m.id] = nil
+    if nora.app() == m.id or nora.app() == "inicio" then nora.volver() end
+  end
+  manda({tipo = "app.borrada", pedido = m.pedido, id = m.id, ok = ok and true or false})
+end
 local function nombre_app(id)
   if nombres[id] == nil then
     local ok, info = pcall(dofile, nora.apps .. "/" .. id .. "/info.lua")
@@ -332,6 +389,16 @@ local function nombre_app(id)
   end
   return nombres[id]
 end
+ATIENDE["app.lista"] = function(m)       -- {tipo="app.lista", pedido} -> {tipo="apps", pedido, apps=[{id,nombre}]}
+  local l = {}
+  for _, id in ipairs(nora.lista(nora.apps)) do
+    if id ~= "sistema" and nora.es_carpeta(nora.apps .. "/" .. id) then l[#l + 1] = {id = id, nombre = nombre_app(id)} end
+  end
+  manda({tipo = "apps", pedido = m.pedido, apps = l})
+end
+
+-- el PC se entera de que cambia la app abierta o la bateria
+local contado = {}
 local function avisa_estado(id)
   if not estado.puente then return end
   if contado.app == id and contado.bat == estado.bat and contado.cargando == estado.cargando then return end
