@@ -177,35 +177,53 @@ void pinta_caja(float x, float y, float w, float h, float radio, color_t c, floa
     nq++;
 }
 
-/* UTF-8 -> Latin-1 (lo que no cabe en Latin-1 sale como '?') */
-static int siguiente_letra(const unsigned char **p)
+/* UTF-8 -> Latin-1, que es lo que tiene el atlas. Los signos de fuera que mas
+ * se usan se cambian por su pariente de dentro («…» por «...», «—» por «-»…);
+ * el resto sale como '?'. Devuelve cuantos bytes deja en b (cabe en n). */
+static int a_latin1(const char *t, unsigned char *b, int n)
 {
-    const unsigned char *s = *p;
-    int c = *s++;
-    if (c >= 0x80) {
-        int extra = c >= 0xf0 ? 3 : c >= 0xe0 ? 2 : c >= 0xc0 ? 1 : 0;
-        int cp = c & (0x3f >> extra);
-        for (int i = 0; i < extra && (*s & 0xc0) == 0x80; i++) cp = (cp << 6) | (*s++ & 0x3f);
-        c = cp < 256 ? cp : '?';
+    const unsigned char *s = (const unsigned char *)t;
+    int k = 0;
+    while (*s && k < n - 3) {
+        int c = *s++;
+        if (c >= 0x80) {
+            int extra = c >= 0xf0 ? 3 : c >= 0xe0 ? 2 : c >= 0xc0 ? 1 : 0;
+            int cp = c & (0x3f >> extra);
+            for (int i = 0; i < extra && (*s & 0xc0) == 0x80; i++) cp = (cp << 6) | (*s++ & 0x3f);
+            switch (cp) {
+            case 0x2026: b[k++] = '.'; b[k++] = '.'; c = '.'; break;           /* … */
+            case 0x2013: case 0x2014: case 0x2212: c = '-'; break;              /* – — − */
+            case 0x2018: case 0x2019: c = '\''; break;                           /* ‘ ’ */
+            case 0x201c: case 0x201d: c = '"'; break;                           /* “ ” */
+            case 0x2022: case 0x2219: c = 0xb7; break;                          /* • → · */
+            case 0x00a0: case 0x202f: c = ' '; break;
+            default: c = cp < 256 ? cp : '?';
+            }
+        }
+        b[k++] = (unsigned char)c;
     }
-    *p = s;
-    return c;
+    b[k] = 0;
+    return k;
 }
 
 float pinta_ancho(int f, const char *t)
 {
     if (f < 0 || f >= ATLAS_FUENTES || !t) return 0;
+    unsigned char b[1024];
+    int n = a_latin1(t, b, sizeof b);
     float w = 0;
-    for (const unsigned char *p = (const unsigned char *)t; *p;) w += GLIFOS[f][siguiente_letra(&p)].adv;
+    for (int i = 0; i < n; i++) w += GLIFOS[f][b[i]].adv;
     return w;
 }
 
 float pinta_texto(int f, float x, float y, const char *t, color_t c)
 {
     if (f < 0 || f >= ATLAS_FUENTES || !t) return 0;
+    unsigned char b[1024];
+    int n = a_latin1(t, b, sizeof b);
     float x0 = x;
-    for (const unsigned char *p = (const unsigned char *)t; *p;) {
-        const glifo_t *g = &GLIFOS[f][siguiente_letra(&p)];
+    for (int k = 0; k < n; k++) {
+        const glifo_t *g = &GLIFOS[f][b[k]];
         if (g->w) {
             cambia(TEXTOS);
             float gx = (float)(int)(x + g->x + 0.5f), gy = (float)(int)(y + g->y + 0.5f);   /* pixel exacto */

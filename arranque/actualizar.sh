@@ -19,6 +19,10 @@ for a in apps/*/; do
     for f in $a*.lua; do sube $f $N/apps/$(basename $a)/$(basename $f); done
 done
 for f in lib/*.lua; do sube $f $N/lib/$(basename $f); done
+for f in sonidos/*.wav; do                     # la musica de menu pesa y no cambia: solo si falta
+    [ "$(basename $f)" = musica-menu.wav ] && continue
+    sube $f $N/sonidos/$(basename $f)
+done
 [ -n "$SOLO_APPS" ] || sube nucleo/nora $N/bin/nora
 
 # parar la Nora que corre (SIGTERM: sale limpia y devuelve el menu de GarlicOS)

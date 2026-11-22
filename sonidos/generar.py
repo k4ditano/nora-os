@@ -25,4 +25,5 @@ guarda("mover", tono(1400, 1300, 0.035, suave), 0.45)                       # ti
 guarda("abrir", tono(600, 1200, 0.09, suave) + tono(1200, 1500, 0.07, suave), 0.6)
 guarda("volver", tono(1100, 600, 0.11, suave), 0.55)
 guarda("menu", tono(800, 800, 0.05, suave) + [0] * int(R * 0.02) + tono(1200, 1200, 0.07, suave), 0.5)
+guarda("aviso", tono(1320, 1320, 0.10, suave, cola=0.8) + tono(1760, 1760, 0.32, suave, cola=0.35), 0.55)   # din-don
 print("sonidos generados")

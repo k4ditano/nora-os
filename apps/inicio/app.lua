@@ -7,6 +7,7 @@ local OCULTAS = {inicio = true, sistema = true}
 
 local apps, sel, sx, sy = {}, 1, 0, 0     -- sx, sy: posicion animada del anillo
 local resumen = ""
+local sin_leer = 0
 
 local function suena(n) nora.suena(SONIDOS .. "/" .. n .. ".wav") end
 local function suave(p) p = math.max(0, math.min(1, p)); return 1 - (1 - p) ^ 3 end
@@ -79,6 +80,7 @@ end
 
 function app.pinta(t)
   leer_resumen()
+  sin_leer = tonumber((nora.dato("avisos.sin_leer"))) or 0
   nora.fondo(0x0e1017)
   local e = suave(t / 0.5)
   nora.texto(saludo(), 28, 52 + 10 * (1 - e), "tit", CLARO, e)
@@ -100,6 +102,12 @@ function app.pinta(t)
     nora.circulo(x + 66, y + 50, 30 + 2 * s * math.sin(t * 4), a.color, entra)
     nora.icono(a.icono, x + 66, y + 50, 0x0e1017, entra)
     nora.texto(a.nombre, x + 66, y + 92, "peq", CLARO, entra, "centro")
+    if a.id == "avisos" and sin_leer > 0 then          -- insignia roja: avisos sin ver
+      local txt = sin_leer > 9 and "9+" or tostring(sin_leer)
+      local w = math.max(26, nora.ancho(txt, "peq") + 14)
+      nora.caja(x + 132 - w + 6, y - 6, w, 26, 13, 0xf87171, entra)
+      nora.texto(txt, x + 132 - w / 2 + 6, y - 4, "peq", CLARO, entra, "centro")
+    end
   end
   -- pista de botones
   local x = 20
