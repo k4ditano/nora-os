@@ -7,9 +7,7 @@
 -- llega en app.mensaje(linea).
 local json = require "json"
 local function manda(t) nora.enviar(json.escribe(t)) end   -- una linea JSON al PC
-local CLARO, TENUE, PANEL, RIEL = 0xf3f4f8, 0x8b90a5, 0x20232f, 0x2b2f3f
-local VERDE, AMBAR, ROJO, NORA = 0x34d399, 0xfbbf24, 0xf87171, 0x8b7cf6
-local SONIDOS = os.getenv("NORA_SONIDOS") or "/tmp/nora/sonidos"
+local T = require "tema"                  -- colores, sonidos y estilo del tema elegido
 
 local abierto, t_abre, t_cierra = false, -10, -10
 local fila, col = 1, 1                     -- fila 1 volumen, 2 brillo, 3 botones
@@ -17,7 +15,7 @@ local estado = {t = -10}
 local BOTONES = {{"home", "Inicio", "inicio"}, {"cog", "Ajustes", "ajustes"}, {"power", "Salir", "salir"}}
 
 local function suave(p) p = math.max(0, math.min(1, p)); return 1 - (1 - p) ^ 3 end
-local function suena(n) nora.suena(SONIDOS .. "/" .. n .. ".wav") end
+local function suena(n) T.suena(n) end
 
 local function refresca(t)                 -- leer el hardware cada 2 s, no cada fotograma
   if t - estado.t < 2 then return end
@@ -30,53 +28,53 @@ local function refresca(t)                 -- leer el hardware cada 2 s, no cada
 end
 
 local function barra(t)
-  nora.texto(os.date("%H:%M"), 20, 8, "peq", CLARO)
+  nora.texto(os.date("%H:%M"), 20, 8, "peq", T.texto)
   local x = 620
   local txt = estado.bat >= 0 and (estado.bat .. "%") or "--"
-  x = x - nora.texto(txt, x, 8, "peq", CLARO, 1, "der") - 18
-  nora.icono(estado.cargando and "bolt" or "bat", x, 20, estado.bat < 20 and ROJO or CLARO, 0.9)
+  x = x - nora.texto(txt, x, 8, "peq", T.texto, 1, "der") - 18
+  nora.icono(estado.cargando and "bolt" or "bat", x, 20, estado.bat < 20 and T.mal or T.texto, 0.9)
   x = x - 36
-  nora.icono("vol", x, 20, CLARO, estado.vol > 0 and 0.9 or 0.35)
+  nora.icono("vol", x, 20, T.texto, estado.vol > 0 and 0.9 or 0.35)
   x = x - 28
   if estado.enlace then                    -- pildora: verde si nora-puente esta conectado
     local t2 = estado.enlace == "cable" and "PC" or "Wi-Fi"
     local w = nora.ancho(t2, "peq") + 46
-    local col = estado.puente and VERDE or TENUE
-    nora.caja(x - w, 6, w, 26, 13, estado.puente and 0x16352b or 0x262a38)
+    local col = estado.puente and T.bien or T.tenue
+    nora.caja(x - w, 6, w, 26, T.radio(13), estado.puente and T.bien or T.riel, estado.puente and 0.2 or 0.9)
     nora.icono(estado.enlace == "cable" and "usb" or "wifi", x - w + 18, 19, col, 1)
     nora.texto(t2, x - w + 36, 8, "peq", col)
   end
 end
 
 local function deslizador(x, y, w, v, color, elegido)
-  nora.caja(x, y, w, 10, 5, RIEL)
-  nora.caja(x, y, math.max(10, w * v), 10, 5, color)
-  if elegido then nora.sombra(x + w * v - 13, y - 8, 26, 26, 13, 6, color, 0.6) end
-  nora.circulo(x + w * v, y + 5, 11, CLARO)
+  nora.caja(x, y, w, 10, T.radio(5), T.riel)
+  nora.caja(x, y, math.max(10, w * v), 10, T.radio(5), color)
+  if elegido and T.estilo.sombras then nora.sombra(x + w * v - 13, y - 8, 26, 26, T.radio(13), 6, color, 0.6) end
+  nora.circulo(x + w * v, y + 5, 11, T.texto)
 end
 
 local function menu(t)
   local p = abierto and suave((t - t_abre) / 0.28) or 1 - suave((t - t_cierra) / 0.22)
   if p <= 0 then return end
-  nora.caja(-2, -2, 644, 484, 0, 0x0e1017, 0.55 * p)        -- oscurece la app
+  nora.caja(-2, -2, 644, 484, 0, T.velo, 0.55 * p)        -- oscurece la app
   local y = 480 - 240 * p
-  nora.sombra(20, y + 6, 600, 260, 26, 20, 0x000000, 0.6 * p)
-  nora.caja(20, y, 600, 260, 26, PANEL)
-  nora.caja(300, y + 10, 40, 5, 3, 0x4a4f63)
-  local filas = {{"vol", estado.vol, VERDE}, {"sun", estado.brillo, AMBAR}}
+  T.sombrea(20, y + 6, 600, 260, 26, 20, 0.6 * p)
+  nora.caja(20, y, 600, 260, T.radio(26), T.panel)
+  nora.caja(300, y + 10, 40, 5, T.radio(3), T.tenue, 0.5)
+  local filas = {{"vol", estado.vol, T.bien}, {"sun", estado.brillo, T.aviso}}
   for i, f in ipairs(filas) do
     local fy = y + 40 + (i - 1) * 46
-    if fila == i then nora.caja(30, fy - 16, 580, 42, 14, 0x2a2e3e) end
-    nora.icono(f[1], 58, fy + 5, CLARO, fila == i and 1 or 0.7)
+    if fila == i then nora.caja(30, fy - 16, 580, 42, T.radio(14), T.panel2) end
+    nora.icono(f[1], 58, fy + 5, T.texto, fila == i and 1 or 0.7)
     deslizador(90, fy, 490, f[2], f[3], fila == i)
   end
   for i, b in ipairs(BOTONES) do
     local bx, by = 40 + (i - 1) * 190, y + 140
     local elegido = fila == 3 and col == i
-    if elegido then nora.sombra(bx - 4, by - 4, 178, 88, 22, 8, NORA, 0.5) end
-    nora.caja(bx, by, 170, 80, 18, elegido and 0x343850 or 0x1a1d29)
-    nora.icono(b[1], bx + 85, by + 28, CLARO, 1)
-    nora.texto(b[2], bx + 85, by + 46, "peq", CLARO, 1, "centro")
+    if elegido then nora.caja(bx - 3, by - 3, 176, 86, T.radio(21), T.acento) end
+    nora.caja(bx, by, 170, 80, T.radio(18), elegido and T.panel2 or T.fondo)
+    nora.icono(b[1], bx + 85, by + 28, T.texto, 1)
+    nora.texto(b[2], bx + 85, by + 46, "peq", T.texto, 1, "centro")
   end
 end
 
@@ -178,33 +176,33 @@ local function pinta_aviso(t)
     if t - t_fuera > 0.24 then siguiente(); return end
   end
   if p <= 0 then return end
-  nora.caja(-2, -2, 644, 484, 0, 0x0e1017, 0.35 * p)        -- oscurece lo de debajo
+  nora.caja(-2, -2, 644, 484, 0, T.velo, 0.35 * p)        -- oscurece lo de debajo
   local x, w, h = 20, 600, 104
   local y = -h - 20 + (h + 32) * p
-  nora.sombra(x, y + 8, w, h, 22, 20, 0x000000, 0.55 * p)
-  nora.caja(x, y, w, h, 22, PANEL)
-  nora.caja(x + 1, y + 1, w - 2, h - 2, 21, 0x262a38, 0.6)
-  nora.circulo(x + 46, y + 44, 22, NORA, 0.22)
-  nora.icono("bell", x + 46, y + 44, NORA, 1)
+  T.sombrea(x, y + 8, w, h, 22, 20, 0.55 * p)
+  nora.caja(x, y, w, h, T.radio(22), T.panel)
+  nora.caja(x + 1, y + 1, w - 2, h - 2, T.radio(21), T.panel2, 0.6)
+  nora.circulo(x + 46, y + 44, 22, T.acento, 0.22)
+  nora.icono("bell", x + 46, y + 44, T.acento, 1)
   local tx, tw = x + 84, w - 84 - 24
   local cab = actual.app ~= "" and (actual.app .. "  ·  " .. actual.hora) or actual.hora
-  nora.texto(cab, tx, y + 12, "peq", TENUE)
-  nora.texto(lineas(actual.titulo, "med", tw, 1)[1] or "", tx, y + 34, "med", CLARO)
+  nora.texto(cab, tx, y + 12, "peq", T.tenue)
+  nora.texto(lineas(actual.titulo, "med", tw, 1)[1] or "", tx, y + 34, "med", T.texto)
   local l = lineas(actual.texto, "peq", tw, 1)
-  if l[1] then nora.texto(l[1], tx, y + 68, "peq", 0xc9ccd8) end
+  if l[1] then nora.texto(l[1], tx, y + 68, "peq", T.suave) end
   -- lo que queda de los 6 s, como una linea que se acaba
   if not t_fuera then
     local resta = math.max(0, 1 - (t - t_aviso) / DURA)
-    nora.caja(x + 22, y + h - 6, (w - 44) * resta, 3, 2, NORA, 0.5)
+    nora.caja(x + 22, y + h - 6, (w - 44) * resta, 3, T.radio(2), T.acento, 0.5)
   end
-  if #cola > 0 then nora.texto("+" .. #cola, x + w - 24, y + 12, "peq", TENUE, 1, "der") end
+  if #cola > 0 then nora.texto("+" .. #cola, x + w - 24, y + 12, "peq", T.tenue, 1, "der") end
 end
 
 ---------------------------------------------------------------- permisos
 -- Claude Code pide permiso (hook PermissionRequest -> nora-puente -> aqui).
 -- A permite, B rechaza, Y permite siempre, X enseña la orden entera (▲ ▼).
 local permisos, permiso, t_permiso, expandido, desplaza = {}, nil, -10, false, 0
-local VERDE_B, ROJO_B = 0x34d399, 0xf87171
+
 
 local function siguiente_permiso()
   permiso = table.remove(permisos, 1)
@@ -228,58 +226,58 @@ local function pinta_permiso(t)
   local edad = t - t_permiso
   if edad > (permiso.plazo or 60) then siguiente_permiso(); return end   -- el PC ya no espera
   local p = suave(edad / 0.28)
-  nora.caja(-2, -2, 644, 484, 0, 0x0e1017, 0.75 * p)
+  nora.caja(-2, -2, 644, 484, 0, T.velo, 0.75 * p)
   local x, w = 24, 592
   local vistas = expandido and 9 or 4
   local n = math.min(#permiso.lineas, vistas)
   local h = 196 + n * 24 + (permiso.detalle ~= "" and 26 or 0)
   local y = (480 - h) / 2 + 30 * (1 - p)
-  nora.sombra(x, y + 10, w, h, 26, 24, 0x000000, 0.6 * p)
-  nora.caja(x, y, w, h, 26, PANEL)
-  nora.caja(x + 26, y, w - 52, 4, 2, AMBAR, 0.9)       -- filo ambar: algo pide tu permiso
+  T.sombrea(x, y + 10, w, h, 26, 24, 0.6 * p)
+  nora.caja(x, y, w, h, T.radio(26), T.panel)
+  nora.caja(x + 26, y, w - 52, 4, T.radio(2), T.aviso, 0.9)       -- filo ambar: algo pide tu permiso
   -- quien y que
-  nora.circulo(x + 46, y + 48, 22, AMBAR, 0.22)
-  nora.icono("shield", x + 46, y + 48, AMBAR, 1)
-  nora.texto("Claude pide permiso", x + 84, y + 22, "med", CLARO)
+  nora.circulo(x + 46, y + 48, 22, T.aviso, 0.22)
+  nora.icono("shield", x + 46, y + 48, T.aviso, 1)
+  nora.texto("Claude pide permiso", x + 84, y + 22, "med", T.texto)
   local sub = permiso.herramienta .. (permiso.carpeta ~= "" and ("  ·  " .. permiso.carpeta) or "")
-  nora.texto(lineas(sub, "peq", w - 110, 1)[1] or "", x + 84, y + 54, "peq", TENUE)
-  if #permisos > 0 then nora.texto("+" .. #permisos, x + w - 24, y + 22, "peq", TENUE, 1, "der") end
+  nora.texto(lineas(sub, "peq", w - 110, 1)[1] or "", x + 84, y + 54, "peq", T.tenue)
+  if #permisos > 0 then nora.texto("+" .. #permisos, x + w - 24, y + 22, "peq", T.tenue, 1, "der") end
   -- la orden, en su caja
   local cy = y + 90
-  nora.caja(x + 20, cy, w - 40, n * 24 + 20, 14, 0x0e1017)
+  nora.caja(x + 20, cy, w - 40, n * 24 + 20, T.radio(14), T.fondo)
   local primera = expandido and math.min(desplaza, math.max(0, #permiso.lineas - vistas)) or 0
   for i = 1, n do
     local l = permiso.lineas[primera + i]
-    if l then nora.texto(l, x + 36, cy + 8 + (i - 1) * 24, "peq", 0xe6e8f0) end
+    if l then nora.texto(l, x + 36, cy + 8 + (i - 1) * 24, "peq", T.texto) end
   end
   if #permiso.lineas > vistas then
     local queda = #permiso.lineas - primera - vistas
     if queda > 0 or not expandido then
       nora.texto(expandido and ("y " .. queda .. " más abajo") or ("… " .. (#permiso.lineas - vistas) .. " líneas más"),
-                 x + w - 36, cy + n * 24 - 2, "peq", TENUE, 1, "der")
+                 x + w - 36, cy + n * 24 - 2, "peq", T.tenue, 1, "der")
     end
   end
   cy = cy + n * 24 + 32
   if permiso.detalle ~= "" then
-    nora.texto(lineas(permiso.detalle, "peq", w - 56, 1)[1] or "", x + 28, cy, "peq", TENUE)
+    nora.texto(lineas(permiso.detalle, "peq", w - 56, 1)[1] or "", x + 28, cy, "peq", T.tenue)
     cy = cy + 26
   end
   -- botones
-  local botones = {{"A", "Permitir", VERDE_B}, {"B", "Rechazar", ROJO_B}}
-  if permiso.siempre then botones[#botones + 1] = {"Y", "Siempre", NORA} end
-  if #permiso.lineas > 4 then botones[#botones + 1] = {"X", expandido and "Menos" or "Ver todo", TENUE} end
+  local botones = {{"A", "Permitir", T.bien}, {"B", "Rechazar", T.mal}}
+  if permiso.siempre then botones[#botones + 1] = {"Y", "Siempre", T.acento} end
+  if #permiso.lineas > 4 then botones[#botones + 1] = {"X", expandido and "Menos" or "Ver todo", T.tenue} end
   local bx = x + 24
   for _, b in ipairs(botones) do
     local bw = nora.ancho(b[2], "peq") + 60
-    nora.caja(bx, cy + 4, bw, 40, 20, b[3], 0.16)
+    nora.caja(bx, cy + 4, bw, 40, T.radio(20), b[3], 0.16)
     nora.circulo(bx + 22, cy + 24, 13, b[3])
-    nora.texto(b[1], bx + 22, cy + 13, "peq", 0x0e1017, 1, "centro")
-    nora.texto(b[2], bx + 42, cy + 13, "peq", CLARO)
+    nora.texto(b[1], bx + 22, cy + 13, "peq", T.sobre_acento, 1, "centro")
+    nora.texto(b[2], bx + 42, cy + 13, "peq", T.texto)
     bx = bx + bw + 12
   end
   -- lo que queda para que decida la terminal
   local resta = math.max(0, 1 - edad / (permiso.plazo or 60))
-  nora.caja(x + 24, y + h - 10, (w - 48) * resta, 3, 2, AMBAR, 0.6)
+  nora.caja(x + 24, y + h - 10, (w - 48) * resta, 3, T.radio(2), T.aviso, 0.6)
 end
 
 ---------------------------------------------------------------- el PC
@@ -350,8 +348,9 @@ ATIENDE["app.instalar"] = function(m)
     nora.log("instalar", tostring(id), "->", e)
     manda({tipo = "app.instalada", pedido = pedido, id = id, ok = false, error = e})
   end
-  if not id_valido(id) then return mal("id de app no valido") end
-  local carpeta = nora.apps .. "/" .. id
+  if not id_valido(id) then return mal("id no valido") end
+  local es_tema = m.clase == "tema"          -- un tema va a temas/<id>, no a apps/
+  local carpeta = (es_tema and T.carpeta_temas or nora.apps) .. "/" .. id
   local va = instalando[pedido or ""]
   if not va then
     va = {nueva = not nora.es_carpeta(carpeta), n = 0}
@@ -368,6 +367,13 @@ ATIENDE["app.instalar"] = function(m)
   instalando[pedido or ""] = nil
   nombres[id] = nil
   nora.log("app instalada desde el PC:", id, va.n, "archivos", va.nueva and "(nueva)" or "")
+  if es_tema then
+    -- abrir = ponerlo; si es el que esta puesto, se vuelve a leer en todas partes
+    if m.abrir == true then T.poner(id) elseif T.id == id then nora.guardar("tema.activo", id) end
+    nora.log("tema instalado desde el PC:", id, va.n, "archivos")
+    manda({tipo = "app.instalada", pedido = pedido, id = id, ok = true, nueva = va.nueva, archivos = va.n, tema = true})
+    return
+  end
   local abierta = nora.app()
   local recarga = abierta == id or m.abrir == true
   -- con recarga, el nucleo manda luego {tipo="app.abierta"} o {tipo="app.error", error}
@@ -375,9 +381,13 @@ ATIENDE["app.instalar"] = function(m)
   if recarga then nora.abrir(id)                                       -- recarga en caliente
   elseif va.nueva and abierta == "inicio" then nora.abrir("inicio") end  -- que salga en el inicio
 end
-ATIENDE["app.borrar"] = function(m)      -- {tipo="app.borrar", pedido, id}
-  local ok = id_valido(m.id) and m.id ~= "inicio" and nora.es_carpeta(nora.apps .. "/" .. m.id)
-  if ok then
+ATIENDE["app.borrar"] = function(m)      -- {tipo="app.borrar", pedido, id[, clase="tema"]}
+  local base = m.clase == "tema" and T.carpeta_temas or nora.apps
+  local ok = id_valido(m.id) and m.id ~= "inicio" and nora.es_carpeta(base .. "/" .. m.id)
+  if m.clase == "tema" and (m.id == "noche" or m.id == T.id) then ok = false end   -- ni el de base ni el puesto
+  if ok and m.clase == "tema" then
+    borra_todo(base .. "/" .. m.id)
+  elseif ok then
     borra_todo(nora.apps .. "/" .. m.id)
     nombres[m.id] = nil
     if nora.app() == m.id or nora.app() == "inicio" then nora.volver() end
@@ -397,6 +407,11 @@ ATIENDE["app.borrar_datos"] = function(m) -- {tipo="app.borrar_datos", pedido, i
   end
   manda({tipo = "app.datos_borrados", pedido = m.pedido, id = m.id, archivos = n})
 end
+ATIENDE["tema.poner"] = function(m)      -- {tipo="tema.poner", pedido, id}
+  local ok = id_valido(m.id) and nora.es_carpeta(T.carpeta_temas .. "/" .. m.id)
+  if ok then T.poner(m.id) end
+  manda({tipo = "tema.puesto", pedido = m.pedido, id = m.id, ok = ok and true or false})
+end
 ATIENDE.captura = function(m)            -- {tipo="captura", pedido} -> el nucleo manda la pantalla en PNG
   nora.captura(type(m.pedido) == "string" and m.pedido or "")
 end
@@ -411,7 +426,11 @@ local function nombre_app(id)
   end
   return nombres[id]
 end
-ATIENDE["app.lista"] = function(m)       -- {tipo="app.lista", pedido} -> {tipo="apps", pedido, apps=[{id,nombre}]}
+ATIENDE["app.lista"] = function(m)       -- {tipo="app.lista", pedido} -> {tipo="apps", pedido, apps=[{id,nombre}], temas, tema}
+  if m.clase == "tema" then
+    manda({tipo = "apps", pedido = m.pedido, apps = T.lista(), tema = T.id})
+    return
+  end
   local l = {}
   for _, id in ipairs(nora.lista(nora.apps)) do
     if id ~= "sistema" and nora.es_carpeta(nora.apps .. "/" .. id) then l[#l + 1] = {id = id, nombre = nombre_app(id)} end
@@ -448,6 +467,7 @@ function app.enlace(conectado)
 end
 
 function app.pinta(t, con_barra, id)
+  T.revisa()
   refresca(t)
   avisa_estado(id)
   if con_barra then barra(t) end

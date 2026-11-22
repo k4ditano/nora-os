@@ -19,6 +19,10 @@ for a in apps/*/; do
     for f in $a*.lua; do sube $f $N/apps/$id/$(basename $f); done
 done
 for f in lib/*.lua; do sube $f $N/lib/$(basename $f); done
+for t in temas/*/; do
+    python3 $H/consola.py $IP "$R mkdir -p $N/temas/$(basename $t)" >/dev/null
+    for f in $t*; do sube $f $N/temas/$(basename $t)/$(basename $f); done
+done
 for f in sonidos/*.wav; do sube $f $N/sonidos/$(basename $f); done
 sube nucleo/nora $N/bin/nora
 sube arranque/pulsada $N/bin/pulsada

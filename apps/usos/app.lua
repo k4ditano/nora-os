@@ -4,8 +4,7 @@
 --     barras = [{nombre, pct (-1 = no se sabe), detalle}], filas = [{nombre, valor}]}]
 -- ◀ ▶ pasa de una a otra con transicion y sonido.
 local json = require "json"
-local FONDO, PANEL, TENUE, CLARO, RIEL = 0x0e1017, 0x1a1d29, 0x8b90a5, 0xf3f4f8, 0x2b2f3f
-local SONIDOS = os.getenv("NORA_SONIDOS") or "/tmp/nora/sonidos"
+local T = require "tema"
 
 local fichas = {}
 local actual, desde, t_cambio, dir = 1, nil, -10, 1
@@ -23,7 +22,7 @@ local function leer()
   for _, f in ipairs(lista) do
     if type(f) == "table" then
       local k = {titulo = texto(f.titulo), sub = texto(f.sub), nota = texto(f.nota),
-                 color = tonumber(texto(f.color), 16) or TENUE, barras = {}, filas = {}}
+                 color = tonumber(texto(f.color), 16) or T.tenue, barras = {}, filas = {}}
       for _, b in ipairs(type(f.barras) == "table" and f.barras or {}) do
         k.barras[#k.barras + 1] = {nombre = texto(b.nombre), pct = tonumber(b.pct) or -1, detalle = texto(b.detalle)}
       end
@@ -37,8 +36,8 @@ local function leer()
 end
 
 local function color_uso(p)
-  if p < 0 then return TENUE elseif p < 60 then return 0x34d399 elseif p < 85 then return 0xfbbf24 end
-  return 0xf87171
+  if p < 0 then return T.tenue elseif p < 60 then return T.bien elseif p < 85 then return T.aviso end
+  return T.mal
 end
 local function suave(p) p = math.max(0, math.min(1, p)); return 1 - (1 - p) ^ 3 end
 local function aclarar(c, f)
@@ -49,8 +48,8 @@ end
 local function pinta_ficha(k, dx, t, ent)
   local x, y, w = 24 + dx, 20, 592
   if x > 640 or x + w < 0 then return end
-  nora.sombra(x, y + 10, w, 410, 22, 22, 0x000000, 0.6)
-  nora.caja(x, y, w, 410, 22, PANEL)
+  T.sombrea(x, y + 10, w, 410, 22, 22, 0.6)
+  nora.caja(x, y, w, 410, T.radio(22), T.panel)
   -- motas del color de la marca
   for i = 0, 13 do
     local fx = (i * 0.618 + t * (0.010 + 0.004 * (i % 3))) % 1
@@ -58,9 +57,9 @@ local function pinta_ficha(k, dx, t, ent)
     nora.circulo(x + 30 + fx * (w - 60) + 8 * math.sin(t * 0.9 + i), y + 400 - fy * 380, 2 + i % 3, k.color,
                  0.16 * math.sin(math.pi * fy))
   end
-  nora.caja(x, y + 24, 6, 362, 3, k.color, 0.65 + 0.35 * (0.5 + 0.5 * math.sin(t * 2.2)))   -- filo que respira
-  nora.texto(k.titulo, x + 28, y + 22, "med", CLARO)
-  nora.texto(k.sub, x + 28, y + 60, "peq", TENUE)
+  nora.caja(x, y + 24, 6, 362, T.radio(3), k.color, 0.65 + 0.35 * (0.5 + 0.5 * math.sin(t * 2.2)))   -- filo que respira
+  nora.texto(k.titulo, x + 28, y + 22, "med", T.texto)
+  nora.texto(k.sub, x + 28, y + 60, "peq", T.tenue)
 
   local cy = y + 98
   if #k.barras > 0 then
@@ -73,39 +72,39 @@ local function pinta_ficha(k, dx, t, ent)
     end
     local sube = 18 * (1 - suave(ent / 0.5))
     local wn = nora.texto(num, x + 24, cy - 6 + sube, "gra", col)
-    nora.texto("te queda (" .. b.nombre:lower() .. ")", x + 36 + wn, cy + 40 + sube, "peq", CLARO)
-    nora.texto(b.detalle, x + 36 + wn, cy + 66 + sube, "peq", TENUE)
+    nora.texto("te queda (" .. b.nombre:lower() .. ")", x + 36 + wn, cy + 40 + sube, "peq", T.texto)
+    nora.texto(b.detalle, x + 36 + wn, cy + 66 + sube, "peq", T.tenue)
     cy = cy + 118
     for i, bi in ipairs(k.barras) do
-      nora.texto(bi.nombre, x + 28, cy, "peq", CLARO)
-      nora.texto(bi.pct >= 0 and (bi.pct .. "% usado") or "sin datos", x + w - 28, cy, "peq", TENUE, 1, "der")
+      nora.texto(bi.nombre, x + 28, cy, "peq", T.texto)
+      nora.texto(bi.pct >= 0 and (bi.pct .. "% usado") or "sin datos", x + w - 28, cy, "peq", T.tenue, 1, "der")
       local bx, by, bw = x + 28, cy + 30, w - 56
-      nora.caja(bx, by, bw, 12, 6, RIEL)
+      nora.caja(bx, by, bw, 12, T.radio(6), T.riel)
       if bi.pct > 0 then
         local lleno = bw * math.min(bi.pct, 100) / 100 * suave((ent - 0.25 - 0.15 * (i - 1)) / 0.8)
         if lleno >= 12 then
-          nora.caja(bx, by, lleno, 12, 6, color_uso(bi.pct))
+          nora.caja(bx, by, lleno, 12, T.radio(6), color_uso(bi.pct))
           -- brillo que recorre la barra
           local pos = ((t * 0.45 + i * 0.37) % 1.6) - 0.3
           local hx = bx + pos * lleno
           local a, b2 = math.max(bx + 4, hx - 26), math.min(bx + lleno - 4, hx + 26)
-          if b2 > a then nora.sombra(a + 6, by + 3, b2 - a - 12, 6, 3, 6, 0xffffff, 0.45) end
+          if b2 > a and T.estilo.sombras then nora.sombra(a + 6, by + 3, b2 - a - 12, 6, T.radio(3), 6, 0xffffff, 0.45) end
         end
       elseif bi.pct < 0 then                   -- sin datos: una bolita que va y viene
-        nora.circulo(bx + 6 + (0.5 + 0.5 * math.sin(t * 1.5 + i)) * (bw - 12), by + 6, 5, TENUE, 0.6)
+        nora.circulo(bx + 6 + (0.5 + 0.5 * math.sin(t * 1.5 + i)) * (bw - 12), by + 6, 5, T.tenue, 0.6)
       end
-      if bi ~= b then nora.texto(bi.detalle, x + 28, cy + 48, "peq", TENUE) end
+      if bi ~= b then nora.texto(bi.detalle, x + 28, cy + 48, "peq", T.tenue) end
       cy = cy + (bi ~= b and 78 or 56)
     end
   end
   for i, f in ipairs(k.filas) do
     local sube = 16 * (1 - suave((ent - 0.08 * (i - 1)) / 0.5))
-    nora.texto(f.nombre, x + 28, cy + sube, "med", CLARO)
+    nora.texto(f.nombre, x + 28, cy + sube, "med", T.texto)
     nora.texto(f.valor, x + w - 28, cy + sube, "med", k.color, 1, "der")
     cy = cy + 50
   end
-  nora.circulo(x + 34, y + 385, 4, 0x34d399, 0.5 + 0.5 * math.sin(t * 3))   -- en vivo
-  nora.texto(k.nota, x + 46, y + 374, "peq", TENUE)
+  nora.circulo(x + 34, y + 385, 4, T.bien, 0.5 + 0.5 * math.sin(t * 3))   -- en vivo
+  nora.texto(k.nota, x + 46, y + 374, "peq", T.tenue)
 end
 
 function app.entrar() leer(); t_cambio = nora.ahora() end
@@ -118,14 +117,15 @@ function app.boton(b)
   desde, dir = actual, paso
   actual = (actual - 1 + paso) % #fichas + 1
   t_cambio = nora.ahora()
-  nora.suena(SONIDOS .. (paso > 0 and "/pasar-der.wav" or "/pasar-izq.wav"))
+  T.suena(paso > 0 and "pasar-der" or "pasar-izq")
 end
 
 function app.pinta(t)
   leer()
-  nora.fondo(FONDO)
+  T.revisa()
+  T.pinta_fondo()
   if #fichas == 0 then
-    nora.texto(nora.conectado() and "Esperando datos del PC…" or "Sin conexión con nora-puente", 320, 220, "med", TENUE, 1, "centro")
+    nora.texto(nora.conectado() and "Esperando datos del PC…" or "Sin conexión con nora-puente", 320, 220, "med", T.tenue, 1, "centro")
     return
   end
   local p = (t - t_cambio) / 0.32
@@ -144,6 +144,6 @@ function app.pinta(t)
   for i = 1, #fichas do
     local cerca = 1 - math.min(1, math.abs(pos - i))
     local ancho = 8 + 14 * cerca
-    nora.caja(x0 + (i - 1) * 24 - ancho / 2, 451, ancho, 8, 4, cerca > 0.5 and CLARO or 0x4a4f63)
+    nora.caja(x0 + (i - 1) * 24 - ancho / 2, 451, ancho, 8, T.radio(4), cerca > 0.5 and T.texto or T.riel)
   end
 end

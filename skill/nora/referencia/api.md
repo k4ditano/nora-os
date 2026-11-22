@@ -141,16 +141,62 @@ Nombres: `"A" "B" "X" "Y" "L" "R" "L2" "R2" "SELECT" "START" "ARRIBA" "ABAJO" "I
 ## Librería común
 
 - `json` (`require "json"`): `json.lee(texto)` → valor | nil, error; `json.escribe(valor)` → texto; `json.nulo`.
+- `tema` (`require "tema"`): los colores, sonidos y estilo del tema que ha elegido el usuario (abajo).
+- `teclado` (`require "teclado"`): escribir texto con la cruceta (abajo).
+
+## El tema del usuario (`require "tema"`)
+
+El usuario elige un tema en Ajustes (colores, fondo, sonidos, música, esquinas, estilo del
+inicio). Las apps del sistema lo siguen siempre; **una app normal debería seguirlo** (sus
+pantallas de menú, textos y paneles), y un juego puede tener su propio aspecto en la partida
+pero conviene que sus menús lo sigan.
+
+```lua
+local T = require "tema"
+function app.pinta(t)
+  T.revisa()                                   -- primero: si cambia el tema, se nota al momento
+  T.pinta_fondo()                              -- el color de fondo y la imagen del tema
+  T.sombrea(20, 80, 600, 120, 20, 16)          -- sombra (solo si el tema usa sombras)
+  nora.caja(20, 80, 600, 120, T.radio(20), T.panel)
+  nora.texto("Hola", 40, 100, "med", T.texto)
+  nora.texto("subtítulo", 40, 140, "peq", T.tenue)
+end
+function app.boton(b) T.suena("mover") end     -- los sonidos con la voz del tema
+```
+
+- Colores: `T.fondo T.panel T.panel2 T.riel T.texto T.suave T.tenue T.acento T.sobre_acento T.sobre_app T.bien T.aviso T.mal T.info T.velo T.sombra`.
+  `panel` para tarjetas, `panel2` para lo elegido o lo que va encima, `riel` para pistas de
+  deslizadores y círculos pequeños, `sobre_acento` para lo que va encima de un color (texto
+  de un botón de color, icono sobre su círculo). Los temas pueden ser **claros u oscuros**: no
+  supongas que el fondo es oscuro; usa siempre la pareja (fondo/panel con texto/tenue).
+- `T.radio(r)`: el radio de esquina según el tema (algunos son cuadrados). Úsalo en `nora.caja`.
+- `T.sombrea(x, y, w, h, radio, difuminado [, alfa])`: sombra suave, solo si el tema las quiere.
+- `T.suena(nombre [, volumen])`: `"mover" "abrir" "volver" "menu" "aviso" "pasar-izq" "pasar-der"`.
+- `T.musica()`: pone la música del menú del tema (o ninguna, si el tema o el usuario no quieren).
+- `T.color_app(color)`: el color para el icono de una app (algunos temas los ponen todos del color del tema).
+- `T.estilo.radio`, `T.estilo.sombras`, `T.estilo.inicio`, `T.estilo.icono`: por si la app quiere adaptarse más.
+- `T.nombre`, `T.id`: el tema puesto. `T.lista()`, `T.poner(id)`: los temas y cambiar de tema (lo usa Ajustes).
+- Para crear un tema nuevo, ver [temas.md](temas.md).
+
+## Teclado en pantalla (`require "teclado"`)
+
+```lua
+local teclado = require "teclado"
+teclado.abrir("Tu nombre", "", function(texto) if texto then nombre = texto end end)  -- nil = cancelado
+function app.boton(b) if teclado.boton(b) then return end --[[ lo tuyo ]] end
+function app.pinta(t) --[[ lo tuyo ]]; teclado.pinta(t) end                        -- lo último
+```
+Cruceta para moverse, A escribe, X borra, Y mayúsculas, START acepta, B cancela. Hasta 24 caracteres; incluye ñ, tildes, ¿ ¡.
 
 ## Una app
 
 ```
 mi-juego/
   app.lua          obligatorio
-  info.lua         return {nombre = "Mi juego", icono = "gamepad", color = 0x8b7cf6, orden = 50}
+  info.lua         return {nombre = "Mi juego", icono = "gamepad", color = 0x8b7cf6, orden = 50, carpeta = "Juegos"}
   img/…            imágenes (opcional)
   sonidos/…        WAV (opcional)
   otro.lua         módulos propios: require "otro"
 ```
-`info.lua`: `nombre` (lo que sale en el inicio), `icono` (de la lista de iconos), `color` (del icono), `orden` (posición en el inicio; menor = antes).
+`info.lua`: `nombre` (lo que sale en el inicio), `icono` (de la lista de iconos), `color` (del icono), `orden` (posición en el inicio; menor = antes), `carpeta` (opcional: la carpeta del inicio donde cae la primera vez; usa nombres que ya existan si encajan: `"Juegos"`, `"Herramientas"`, `"Ejemplos"`). El usuario puede moverla luego a otra (modo ordenar del inicio, con Y), y eso manda.
 El id de la app (su carpeta) es letras, números, `-` y `_`.

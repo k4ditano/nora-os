@@ -1,6 +1,6 @@
 ---
 name: nora
-description: Crear, probar y arreglar apps y juegos para Nora OS, el sistema de la consola Anbernic RG35XX (Lua sobre la GPU, 640x480, botones de mando). Úsala cuando pidan "un juego para Nora", "una app para la consola", "para la RG35XX", "hazme un Snake/Tetris/plataformas para Nora", o cambiar, depurar o mejorar una app de Nora; también para instalar apps en la consola, verla (capturas), pulsar sus botones o leer su registro con nora-puente.
+description: Crear, probar y arreglar apps y juegos para Nora OS, el sistema de la consola Anbernic RG35XX (Lua sobre la GPU, 640x480, botones de mando). Úsala cuando pidan "un juego para Nora", "una app para la consola", "para la RG35XX", "hazme un Snake/Tetris/plataformas para Nora", o cambiar, depurar o mejorar una app de Nora; también para crear temas de Nora (colores, fondo, sonidos, estilo), instalar apps o temas en la consola, verla (capturas), pulsar sus botones o leer su registro con nora-puente.
 ---
 
 # Apps y juegos para Nora
@@ -14,7 +14,7 @@ corriendo como servicio: con él instalas la app, la ves, pulsas sus botones y l
 **Antes de escribir código lee [referencia/api.md](referencia/api.md)** (la API entera, corta).
 Para juegos, mira también [referencia/patrones.md](referencia/patrones.md) y el ejemplo
 completo [ejemplos/cometas/](ejemplos/cometas/) (SVG, PNG, cruceta mantenida, sonido, récord).
-La app más pequeña es [ejemplos/hola/](ejemplos/hola/).
+La app más pequeña es [ejemplos/hola/](ejemplos/hola/). Para temas: [referencia/temas.md](referencia/temas.md).
 
 ## Cómo trabajar
 
@@ -71,6 +71,10 @@ Otras órdenes (todas en `nora-puente --help`):
 - Sonidos del sistema: `local SONIDOS = os.getenv("NORA_SONIDOS")` y `SONIDOS .. "/mover.wav"`. Los tuyos, con ruta relativa: `nora.suena("sonidos/salto.wav")`. Desde el PC no se puede oír: compruébalo con el usuario.
 - La pantalla es de **16 bits**: los degradados y los colores muy oscuros se ven a escalones o tramados. Mejor colores planos.
 - `app.lua` se ejecuta entero cada vez que se abre la app (y en cada recarga): lo de arriba es la inicialización.
+- **Sigue el tema del usuario** en menús y pantallas normales: `local T = require "tema"`, `T.revisa()` y
+  `T.pinta_fondo()` al principio de `pinta`, colores `T.texto`, `T.panel`… y `T.radio()` en las esquinas
+  (ver *api.md*). Los temas pueden ser claros: no des por hecho un fondo oscuro.
+- `carpeta = "Juegos"` en `info.lua` para que un juego caiga en la carpeta de juegos del inicio.
 - Pantalla pequeña y se mira de cerca: textos de `"peq"` (24 px) como mínimo, botones y cosas importantes grandes, buen contraste.
 
 ## Antes de dar la app por terminada

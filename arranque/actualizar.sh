@@ -23,6 +23,10 @@ for a in apps/*/; do
     for f in $a*.lua; do sube $f $N/apps/$(basename $a)/$(basename $f); done
 done
 for f in lib/*.lua; do sube $f $N/lib/$(basename $f); done
+for t in temas/*/; do                          # los temas de serie (el elegido, temas/activo, no se toca)
+    orden "mkdir -p $N/temas/$(basename $t)"
+    for f in $t*; do sube $f $N/temas/$(basename $t)/$(basename $f); done
+done
 for f in sonidos/*.wav; do                     # la musica de menu pesa y no cambia: solo si falta
     [ "$(basename $f)" = musica-menu.wav ] && continue
     sube $f $N/sonidos/$(basename $f)

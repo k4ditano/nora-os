@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">
+  <defs>
+    <linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6efe4"/><stop offset="1" stop-color="#efe2cf"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="480" fill="url(#cielo)"/>
+  <circle cx="520" cy="96" r="44" fill="#f4d7b0"/>
+  <path d="M0 360 C120 320 220 330 320 352 C430 376 520 330 640 340 L640 480 L0 480 Z" fill="#ead9bf"/>
+  <path d="M0 410 C140 380 260 400 360 418 C470 438 560 404 640 410 L640 480 L0 480 Z" fill="#e3cdac"/>
+</svg>
