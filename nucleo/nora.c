@@ -53,8 +53,10 @@
 #include "pinta.h"
 #include "sonido.h"
 #include "enlace.h"
+#include "imagenes.h"
+#include <math.h>
 
-#define VERSION "0.4"
+#define VERSION "0.5"
 
 static volatile int seguir = 1;
 static void parar(int s) { (void)s; seguir = 0; }
@@ -254,10 +256,22 @@ static int l_icono(lua_State *l)    /* nombre cx cy color alfa */
 static int l_ancho(lua_State *l) { lua_pushnumber(l, pinta_ancho(fuente_arg(l, 2), luaL_checkstring(l, 1))); return 1; }
 static int l_alto(lua_State *l) { lua_pushnumber(l, pinta_alto_fuente(fuente_arg(l, 1))); return 1; }
 static int l_ahora(lua_State *l) { lua_pushnumber(l, ahora() - t0); return 1; }
+/* una ruta de la app: relativa a su carpeta (nora.carpeta), o absoluta */
+static const char *ruta_de(lua_State *l, const char *r, char *buf, size_t n)
+{
+    if (r[0] == '/') return r;
+    lua_getglobal(l, "nora");
+    lua_getfield(l, -1, "carpeta");
+    const char *c = lua_tostring(l, -1);
+    snprintf(buf, n, "%s/%s", c ? c : ".", r);
+    lua_pop(l, 2);
+    return buf;
+}
 static int hay_mezclador;
 static int l_suena(lua_State *l)    /* wav [volumen 0..1] */
 {
-    const char *wav = luaL_checkstring(l, 1);
+    char buf[600];
+    const char *wav = ruta_de(l, luaL_checkstring(l, 1), buf, sizeof buf);
     if (hay_mezclador) { sonido_efecto(wav, (float)luaL_optnumber(l, 2, 1)); return 0; }
     const char *rep = getenv("NORA_SUENA");            /* sin mezclador: un proceso por sonido */
     if (!rep) rep = "/tmp/nora/suena";
@@ -269,20 +283,30 @@ static int l_suena(lua_State *l)    /* wav [volumen 0..1] */
 }
 static int l_musica(lua_State *l)   /* wav [volumen 0..1]; sin wav: parar con fundido */
 {
-    sonido_musica(luaL_optstring(l, 1, 0), (float)luaL_optnumber(l, 2, 0.5));
+    char buf[600];
+    const char *wav = luaL_optstring(l, 1, 0);
+    sonido_musica(wav ? ruta_de(l, wav, buf, sizeof buf) : 0, (float)luaL_optnumber(l, 2, 0.5));
     return 0;
 }
+static void manda_evento(const char *tipo, const char *id, const char *campo, const char *texto);
+static const char *id_de(lua_State *l);
 static int l_log(lua_State *l)
 {
-    fprintf(stderr, "lua:");
-    for (int i = 1; i <= lua_gettop(l); i++) {
+    luaL_Buffer b;
+    luaL_buffinit(l, &b);
+    int n = lua_gettop(l);
+    for (int i = 1; i <= n; i++) {
         lua_getglobal(l, "tostring");
         lua_pushvalue(l, i);
         lua_call(l, 1, 1);
-        fprintf(stderr, " %s", lua_tostring(l, -1));
-        lua_pop(l, 1);
+        if (i > 1) luaL_addchar(&b, ' ');
+        luaL_addvalue(&b);
     }
-    fprintf(stderr, "\n");
+    luaL_pushresult(&b);
+    const char *msg = lua_tostring(l, -1);
+    fprintf(stderr, "lua: %s\n", msg);
+    manda_evento("log", id_de(l), "texto", msg);
+    lua_pop(l, 1);
     return 0;
 }
 static int l_salir(lua_State *l) { (void)l; seguir = 0; return 0; }
@@ -437,11 +461,8 @@ static void crear_carpetas(const char *ruta)   /* mkdir -p de la carpeta de ruta
     for (char *p = c + 1; *p; p++)
         if (*p == '/') { *p = 0; mkdir(c, 0755); *p = '/'; }
 }
-static int l_escribir(lua_State *l) /* escribe entero (a .tmp y renombra: nadie lee medio archivo) */
+static int escribe_archivo(const char *ruta, const char *datos, size_t n)   /* a .tmp y renombra */
 {
-    const char *ruta = luaL_checkstring(l, 1);
-    size_t n;
-    const char *datos = luaL_checklstring(l, 2, &n);
     char tmp[540];
     crear_carpetas(ruta);
     snprintf(tmp, sizeof tmp, "%s.tmp", ruta);
@@ -449,7 +470,14 @@ static int l_escribir(lua_State *l) /* escribe entero (a .tmp y renombra: nadie 
     int ok = f && fwrite(datos, 1, n, f) == n;
     if (f && fclose(f)) ok = 0;
     if (ok && rename(tmp, ruta)) ok = 0;
-    if (!ok) { lua_pushnil(l); lua_pushstring(l, strerror(errno)); unlink(tmp); return 2; }
+    if (!ok) unlink(tmp);
+    return ok ? 0 : -1;
+}
+static int l_escribir(lua_State *l) /* escribe entero (nadie lee medio archivo) */
+{
+    size_t n;
+    const char *datos = luaL_checklstring(l, 2, &n);
+    if (escribe_archivo(luaL_checkstring(l, 1), datos, n)) { lua_pushnil(l); lua_pushstring(l, strerror(errno)); return 2; }
     lua_pushboolean(l, 1);
     return 1;
 }
@@ -466,6 +494,243 @@ static int l_es_carpeta(lua_State *l)
     return 1;
 }
 
+/* ---- imagenes: PNG, JPG, BMP, GIF y SVG ---- */
+typedef struct { unsigned tex; int w, h; } imagen_t;
+#define IMAGEN_MT "nora.imagen"
+static int imagen_gc(lua_State *l)
+{
+    imagen_t *im = luaL_checkudata(l, 1, IMAGEN_MT);
+    if (im->tex) pinta_textura_borrar(im->tex);
+    im->tex = 0;
+    return 0;
+}
+static int imagen_index(lua_State *l)
+{
+    imagen_t *im = luaL_checkudata(l, 1, IMAGEN_MT);
+    const char *k = luaL_checkstring(l, 2);
+    if (!strcmp(k, "w") || !strcmp(k, "ancho")) lua_pushnumber(l, im->w);
+    else if (!strcmp(k, "h") || !strcmp(k, "alto")) lua_pushnumber(l, im->h);
+    else lua_pushnil(l);
+    return 1;
+}
+static double campo_num(lua_State *l, int t, const char *k, double def)
+{
+    if (!lua_istable(l, t)) return def;
+    lua_getfield(l, t, k);
+    double v = lua_isnumber(l, -1) ? lua_tonumber(l, -1) : def;
+    lua_pop(l, 1);
+    return v;
+}
+static int campo_bool_t(lua_State *l, int t, const char *k)
+{
+    if (!lua_istable(l, t)) return 0;
+    lua_getfield(l, t, k);
+    int v = lua_toboolean(l, -1);
+    lua_pop(l, 1);
+    return v;
+}
+/* nora.imagen(ruta [, {ancho, alto, pixel}]) o (ruta, ancho, alto) -> imagen | nil, error */
+static int l_imagen(lua_State *l)
+{
+    char buf[600], clave[700];
+    const char *ruta = ruta_de(l, luaL_checkstring(l, 1), buf, sizeof buf);
+    int ancho, alto, pixel;
+    if (lua_istable(l, 2)) {
+        ancho = (int)campo_num(l, 2, "ancho", campo_num(l, 2, "w", 0));
+        alto = (int)campo_num(l, 2, "alto", campo_num(l, 2, "h", 0));
+        pixel = campo_bool_t(l, 2, "pixel");
+    } else {
+        ancho = (int)luaL_optnumber(l, 2, 0);
+        alto = (int)luaL_optnumber(l, 3, 0);
+        pixel = 0;
+    }
+    /* cada imagen se carga una vez por app aunque se pida en cada fotograma */
+    snprintf(clave, sizeof clave, "%s|%d|%d|%d", ruta, ancho, alto, pixel);
+    lua_getfield(l, LUA_REGISTRYINDEX, "nora.imagenes");
+    if (lua_isnil(l, -1)) {
+        lua_pop(l, 1);
+        lua_newtable(l);
+        lua_pushvalue(l, -1);
+        lua_setfield(l, LUA_REGISTRYINDEX, "nora.imagenes");
+    }
+    lua_getfield(l, -1, clave);
+    if (!lua_isnil(l, -1)) return 1;
+    lua_pop(l, 1);
+    int w, h;
+    const char *err;
+    unsigned char *p = imagen_cargar(ruta, ancho, alto, &w, &h, &err);
+    if (!p) {
+        lua_pushnil(l);
+        lua_pushfstring(l, "%s: %s", ruta, err ? err : "no se puede leer");
+        return 2;
+    }
+    if (w > 2048 || h > 2048) { free(p); lua_pushnil(l); lua_pushfstring(l, "%s: demasiado grande (%dx%d, 2048 como mucho)", ruta, w, h); return 2; }
+    imagen_t *im = lua_newuserdata(l, sizeof *im);
+    im->tex = pinta_textura(p, w, h, pixel);
+    im->w = w;
+    im->h = h;
+    free(p);
+    if (luaL_newmetatable(l, IMAGEN_MT)) {
+        lua_pushcfunction(l, imagen_gc); lua_setfield(l, -2, "__gc");
+        lua_pushcfunction(l, imagen_index); lua_setfield(l, -2, "__index");
+    }
+    lua_setmetatable(l, -2);
+    lua_pushvalue(l, -1);
+    lua_setfield(l, -3, clave);
+    return 1;
+}
+/* nora.dibuja(img, x, y [, {w, h, escala, alfa, color, giro, centro, ox, oy, recorte={x,y,w,h}, espejo, voltea}]) */
+static int l_dibuja(lua_State *l)
+{
+    imagen_t *im = luaL_checkudata(l, 1, IMAGEN_MT);
+    float x = luaL_checknumber(l, 2), y = luaL_checknumber(l, 3);
+    int t = 4, op = lua_istable(l, t);
+    float rx = 0, ry = 0, rw = im->w, rh = im->h;
+    if (op) {
+        lua_getfield(l, t, "recorte");
+        if (lua_istable(l, -1)) {
+            int r = lua_gettop(l);
+            lua_rawgeti(l, r, 1); lua_rawgeti(l, r, 2); lua_rawgeti(l, r, 3); lua_rawgeti(l, r, 4);
+            rx = lua_isnumber(l, -4) ? lua_tonumber(l, -4) : campo_num(l, r, "x", 0);
+            ry = lua_isnumber(l, -3) ? lua_tonumber(l, -3) : campo_num(l, r, "y", 0);
+            rw = lua_isnumber(l, -2) ? lua_tonumber(l, -2) : campo_num(l, r, "w", im->w);
+            rh = lua_isnumber(l, -1) ? lua_tonumber(l, -1) : campo_num(l, r, "h", im->h);
+            lua_pop(l, 4);
+        }
+        lua_pop(l, 1);
+    }
+    float e = campo_num(l, t, "escala", 1);
+    float w = campo_num(l, t, "w", campo_num(l, t, "ancho", rw * e));
+    float h = campo_num(l, t, "h", campo_num(l, t, "alto", rh * e));
+    float giro = campo_num(l, t, "giro", 0);
+    int centro = campo_bool_t(l, t, "centro");
+    float ox = campo_num(l, t, "ox", centro ? 0.5 : 0), oy = campo_num(l, t, "oy", centro ? 0.5 : 0);
+    uint32_t col = 0xffffff;
+    if (op) { lua_getfield(l, t, "color"); col = color_arg(l, lua_gettop(l), 0xffffff); lua_pop(l, 1); }
+    color_t c = color_hex(col, campo_num(l, t, "alfa", 1));
+    float u0 = rx / im->w, v0 = ry / im->h, u1 = (rx + rw) / im->w, v1 = (ry + rh) / im->h;
+    if (campo_bool_t(l, t, "espejo")) { float k = u0; u0 = u1; u1 = k; }
+    if (campo_bool_t(l, t, "voltea")) { float k = v0; v0 = v1; v1 = k; }
+    float lx[4] = {-ox * w, (1 - ox) * w, (1 - ox) * w, -ox * w};
+    float ly[4] = {-oy * h, -oy * h, (1 - oy) * h, (1 - oy) * h};
+    float cs = cosf(giro), sn = sinf(giro), xy[8];
+    for (int i = 0; i < 4; i++) {
+        xy[2 * i] = x + lx[i] * cs - ly[i] * sn;
+        xy[2 * i + 1] = y + lx[i] * sn + ly[i] * cs;
+    }
+    float uv[8] = {u0, v0, u1, v0, u1, v1, u0, v1};
+    pinta_quad(im->tex, xy, uv, c);
+    return 0;
+}
+static int l_linea(lua_State *l)    /* x1 y1 x2 y2 grosor color alfa */
+{
+    pinta_linea(luaL_checknumber(l, 1), luaL_checknumber(l, 2), luaL_checknumber(l, 3), luaL_checknumber(l, 4),
+                luaL_optnumber(l, 5, 2), color_args(l, 6));
+    return 0;
+}
+static int l_recorte(lua_State *l)  /* x y w h: solo se pinta dentro; sin argumentos, se quita */
+{
+    if (lua_isnoneornil(l, 1)) pinta_recorte(0, 0, -1, -1);
+    else pinta_recorte((int)luaL_checknumber(l, 1), (int)luaL_checknumber(l, 2), (int)luaL_checknumber(l, 3),
+                       (int)luaL_checknumber(l, 4));
+    return 0;
+}
+
+/* ---- botones mantenidos, y pulsaciones de mentira (desde el PC) ---- */
+static const char *BOTONES[] = {"A", "B", "X", "Y", "L", "R", "L2", "R2", "SELECT", "START", "MENU",
+                                "ARRIBA", "ABAJO", "IZQUIERDA", "DERECHA", 0};
+static int boton_idx(const char *b)
+{
+    for (int i = 0; BOTONES[i]; i++) if (!strcmp(b, BOTONES[i])) return i;
+    return -1;
+}
+static int mantenido[16];            /* lo que la app tiene pulsado ahora */
+static int l_pulsado(lua_State *l)
+{
+    int i = boton_idx(luaL_checkstring(l, 1));
+    lua_pushboolean(l, i >= 0 && mantenido[i]);
+    return 1;
+}
+typedef struct { double t; int b, p; } pulso_t;
+static pulso_t pulsos[64];
+static int npulsos;
+static double pulsos_hasta;
+static void pulso(double t, int b, int p)
+{
+    if (npulsos < 64) { pulsos[npulsos].t = t; pulsos[npulsos].b = b; pulsos[npulsos].p = p; npulsos++; }
+}
+/* nora.pulsar("A") / nora.pulsar({"ABAJO","A"}, ms): uno tras otro, cada uno ms pulsado */
+static int l_pulsar(lua_State *l)
+{
+    double ms = luaL_optnumber(l, 2, 90) / 1000.0, t = ahora();
+    if (pulsos_hasta > t) t = pulsos_hasta;
+    int n = lua_istable(l, 1) ? (int)lua_objlen(l, 1) : 1;
+    for (int k = 1; k <= n; k++) {
+        const char *b;
+        if (lua_istable(l, 1)) { lua_rawgeti(l, 1, k); b = lua_tostring(l, -1); lua_pop(l, 1); }
+        else b = luaL_checkstring(l, 1);
+        int i = b ? boton_idx(b) : -1;
+        if (i < 0) continue;
+        pulso(t, i, 1);
+        pulso(t + ms, i, 0);
+        t += ms + 0.07;
+    }
+    pulsos_hasta = t;
+    return 0;
+}
+
+/* ---- partidas guardadas: <apps>/../datos/<app>/<nombre> ---- */
+static mundo_t *mundo_de(lua_State *l);
+static int ruta_partida(lua_State *l, char *buf, size_t n)
+{
+    const char *nombre = luaL_checkstring(l, 1);
+    if (!nombre[0] || nombre[0] == '.' || strchr(nombre, '/')) return -1;
+    mundo_t *m = mundo_de(l);
+    snprintf(buf, n, "%s/../datos/%s/%s", apps_dir(), m ? m->id : "otra", nombre);
+    return 0;
+}
+static int l_salvar(lua_State *l)   /* nombre texto|nil -> true | nil, error */
+{
+    char ruta[700];
+    if (ruta_partida(l, ruta, sizeof ruta)) return luaL_error(l, "nombre de partida no valido");
+    if (lua_isnoneornil(l, 2)) { unlink(ruta); lua_pushboolean(l, 1); return 1; }
+    size_t n;
+    const char *datos = luaL_checklstring(l, 2, &n);
+    if (escribe_archivo(ruta, datos, n)) { lua_pushnil(l); lua_pushstring(l, strerror(errno)); return 2; }
+    lua_pushboolean(l, 1);
+    return 1;
+}
+static int l_cargar(lua_State *l)   /* nombre -> texto | nil */
+{
+    char ruta[700];
+    if (ruta_partida(l, ruta, sizeof ruta)) return luaL_error(l, "nombre de partida no valido");
+    FILE *f = fopen(ruta, "rb");
+    if (!f) { lua_pushnil(l); return 1; }
+    luaL_Buffer b;
+    luaL_buffinit(l, &b);
+    char trozo[4096];
+    size_t k;
+    while ((k = fread(trozo, 1, sizeof trozo, f)) > 0) luaL_addlstring(&b, trozo, k);
+    fclose(f);
+    luaL_pushresult(&b);
+    return 1;
+}
+
+/* ---- captura de pantalla, para el PC ---- */
+static char captura_pedido[96];
+static int captura_pendiente;
+static int l_captura(lua_State *l)  /* pedido: la proxima imagen va al PC como {"tipo":"captura",...} */
+{
+    const char *p = luaL_optstring(l, 1, "");
+    int j = 0;
+    for (; *p && j < (int)sizeof captura_pedido - 1; p++)
+        if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '-' || *p == '_')
+            captura_pedido[j++] = *p;
+    captura_pedido[j] = 0;
+    captura_pendiente = 1;
+    return 0;
+}
+
 static const luaL_Reg API[] = {
     {"fondo", l_fondo}, {"caja", l_caja}, {"sombra", l_sombra}, {"circulo", l_circulo}, {"texto", l_texto},
     {"icono", l_icono}, {"ancho", l_ancho}, {"alto", l_alto}, {"ahora", l_ahora}, {"suena", l_suena},
@@ -473,7 +738,38 @@ static const luaL_Reg API[] = {
     {"app", l_app}, {"bateria", l_bateria}, {"enlace", l_enlace}, {"brillo", l_brillo},
     {"volumen", l_volumen}, {"guardar", l_guardar}, {"dato", l_dato}, {"enviar", l_enviar},
     {"conectado", l_conectado}, {"poner_hora", l_poner_hora}, {"de64", l_de64}, {"escribir", l_escribir},
-    {"borrar", l_borrar}, {"es_carpeta", l_es_carpeta}, {0, 0}};
+    {"borrar", l_borrar}, {"es_carpeta", l_es_carpeta}, {"imagen", l_imagen}, {"dibuja", l_dibuja},
+    {"linea", l_linea}, {"recorte", l_recorte}, {"pulsado", l_pulsado}, {"pulsar", l_pulsar},
+    {"salvar", l_salvar}, {"cargar", l_cargar}, {"captura", l_captura}, {0, 0}};
+
+static mundo_t *mundo_de(lua_State *l) { return l == app.L ? &app : l == sis.L ? &sis : 0; }
+static const char *id_de(lua_State *l) { mundo_t *m = mundo_de(l); return m ? m->id : "?"; }
+/* {"tipo":tipo,"id":id[,campo:texto]} al PC, si esta */
+static void manda_evento(const char *tipo, const char *id, const char *campo, const char *texto)
+{
+    if (!enlace_conectado()) return;
+    size_t n = texto ? strlen(texto) : 0;
+    if (n > 4000) n = 4000;
+    char *b = malloc(n * 6 + 256), *o = b;
+    if (!b) return;
+    o += sprintf(o, "{\"tipo\":\"%s\",\"id\":\"%s\"", tipo, id);
+    if (campo) {
+        o += sprintf(o, ",\"%s\":\"", campo);
+        for (size_t i = 0; i < n; i++) {
+            unsigned char c = (unsigned char)texto[i];
+            if (c == '"' || c == '\\') { *o++ = '\\'; *o++ = c; }
+            else if (c == '\n') { *o++ = '\\'; *o++ = 'n'; }
+            else if (c == '\t') { *o++ = '\\'; *o++ = 't'; }
+            else if (c < 0x20) o += sprintf(o, "\\u%04x", c);
+            else *o++ = c;
+        }
+        *o++ = '"';
+    }
+    *o++ = '}';
+    *o = 0;
+    enlace_enviar(b);
+    free(b);
+}
 
 static int traza(lua_State *l)
 {
@@ -497,6 +793,7 @@ static int llama(mundo_t *m, const char *nombre, int nargs, int nres)
     if (lua_pcall(L, nargs, nres, base)) {
         snprintf(m->error, sizeof m->error, "%s", lua_tostring(L, -1));
         fprintf(stderr, "nora: error en %s, app.%s: %s\n", m->id, nombre, m->error);
+        manda_evento("app.error", m->id, "error", m->error);
         lua_pop(L, 1);
         lua_remove(L, base);
         return 0;
@@ -568,15 +865,19 @@ static int mundo_abrir(mundo_t *m, const char *quien)
     lua_pop(L, 2);
     lua_newtable(L);
     lua_setglobal(L, "app");
+    (void)luaL_dostring(L, "math.randomseed(os.time())");
+    if (m == &app) memset(mantenido, 0, sizeof mantenido);
     lua_pushcfunction(L, traza);
     if (luaL_loadfile(L, ruta) || lua_pcall(L, 0, 0, -2)) {
         snprintf(m->error, sizeof m->error, "%s", lua_tostring(L, -1));
         fprintf(stderr, "nora: no carga %s: %s\n", ruta, m->error);
+        manda_evento("app.error", m->id, "error", m->error);
         lua_pop(L, 2);
         return -1;
     }
     lua_pop(L, 1);
     fprintf(stderr, "nora: abierta %s\n", m->id);
+    manda_evento("app.abierta", m->id, 0, 0);
     return 0;
 }
 
@@ -607,6 +908,8 @@ static void pinta_error(mundo_t *m)
 static int sel_pulsado, start_pulsado, sis_tiene;   /* sis_tiene: el sistema se quedo la pulsacion */
 static void entrada_boton(const char *b, int pulsado)
 {
+    int bi = boton_idx(b);
+    if (!pulsado && bi >= 0) mantenido[bi] = 0;
     if (!strcmp(b, "SELECT")) sel_pulsado = pulsado;
     if (!strcmp(b, "START")) start_pulsado = pulsado;
     if (sel_pulsado && start_pulsado) seguir = 0;
@@ -622,6 +925,7 @@ static void entrada_boton(const char *b, int pulsado)
         if (pulsado && !strcmp(b, "B") && strcmp(app.id, "inicio")) snprintf(pendiente, sizeof pendiente, "inicio");
         return;
     }
+    if (pulsado && bi >= 0) mantenido[bi] = 1;
     lua_pushstring(app.L, b);
     llama(&app, pulsado ? "boton" : "suelta", 1, 0);
 }
@@ -663,6 +967,40 @@ static void saludar(void)
              VERSION, lee_int("/sys/class/power_supply/battery/capacity", -1),
              !strcmp(st, "Charging") || !strcmp(st, "Full") ? "true" : "false", app.id, ventana_ancho(), ventana_alto());
     enlace_enviar(m);
+}
+
+static void mandar_captura(int w, int h)
+{
+    unsigned char *px = malloc((size_t)w * h * 4);
+    if (!px) return;
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    for (int y = 0; y < h / 2; y++)                    /* GL lee de abajo arriba */
+        for (int x = 0; x < w * 4; x++) {
+            unsigned char k = px[y * w * 4 + x];
+            px[y * w * 4 + x] = px[(h - 1 - y) * w * 4 + x];
+            px[(h - 1 - y) * w * 4 + x] = k;
+        }
+    for (int i = 3; i < w * h * 4; i += 4) px[i] = 255;
+    int n = 0;
+    unsigned char *png = imagen_png(px, w, h, &n);
+    free(px);
+    if (!png) return;
+    static const char A[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    char *l = malloc((size_t)n / 3 * 4 + 300), *o = l;
+    if (l) {
+        o += sprintf(o, "{\"tipo\":\"captura\",\"pedido\":\"%s\",\"ancho\":%d,\"alto\":%d,\"png\":\"", captura_pedido, w, h);
+        for (int i = 0; i < n; i += 3) {
+            unsigned v = png[i] << 16 | (i + 1 < n ? png[i + 1] << 8 : 0) | (i + 2 < n ? png[i + 2] : 0);
+            *o++ = A[v >> 18 & 63];
+            *o++ = A[v >> 12 & 63];
+            *o++ = i + 1 < n ? A[v >> 6 & 63] : '=';
+            *o++ = i + 2 < n ? A[v & 63] : '=';
+        }
+        strcpy(o, "\"}");
+        enlace_enviar(l);
+        free(l);
+    }
+    free(png);
 }
 
 int main(int argc, char **argv)
@@ -738,6 +1076,11 @@ int main(int argc, char **argv)
                 entrada_boton(b, ev.value);
             }
         double t = ahora(), dt = t - antes;
+        while (npulsos && pulsos[0].t <= t) {          /* pulsaciones mandadas desde el PC */
+            pulso_t p = pulsos[0];
+            memmove(pulsos, pulsos + 1, --npulsos * sizeof *pulsos);
+            entrada_boton(BOTONES[p.b], p.p);
+        }
         antes = t;
 
         int cambio = enlace_paso(t, recibir);
@@ -768,6 +1111,7 @@ int main(int argc, char **argv)
             lua_pushnumber(app.L, t - t_app);
             llama(&app, "pinta", 1, 0);
         }
+        pinta_recorte(0, 0, -1, -1);                   /* lo que dejara la app, fuera */
         if (sis.L) {
             lua_pushnumber(sis.L, t - t0);
             lua_pushboolean(sis.L, campo_bool(&app, "barra"));
@@ -782,6 +1126,7 @@ int main(int argc, char **argv)
         }
         if (mostrar_fps) pinta_texto(0, 8, H - 26, fps_txt, color_hex(0x34d399, 0.9f));
         pinta_terminar();
+        if (captura_pendiente) { captura_pendiente = 0; mandar_captura(W, H); }
         eglSwapBuffers(dpy, sup);
         cuadros++;
         if (t - t_fps >= 1) {

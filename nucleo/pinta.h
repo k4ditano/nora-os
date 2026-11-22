@@ -19,6 +19,12 @@ float pinta_ancho(int fuente, const char *utf8);
 int pinta_alto_fuente(int fuente);
 int pinta_icono(const char *nombre, float cx, float cy, color_t c);   /* centrado; -1 si no existe */
 int pinta_fuente(const char *nombre);   /* "peq" "med" "tit" "gra" -> indice, -1 si no */
+/* imagenes: una textura RGBA de w*h; pixelado = sin suavizar al escalar */
+unsigned pinta_textura(const unsigned char *rgba, int w, int h, int pixelado);
+void pinta_textura_borrar(unsigned t);
+void pinta_quad(unsigned tex, const float xy[8], const float uv[8], color_t c);
+void pinta_linea(float x1, float y1, float x2, float y2, float grosor, color_t c);
+void pinta_recorte(int x, int y, int w, int h);   /* w < 0: sin recorte */
 void pinta_terminar(void);              /* manda lo que quede */
 int pinta_dibujados(void);              /* tandas mandadas en el ultimo fotograma */
 

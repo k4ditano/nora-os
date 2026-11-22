@@ -368,9 +368,11 @@ ATIENDE["app.instalar"] = function(m)
   instalando[pedido or ""] = nil
   nombres[id] = nil
   nora.log("app instalada desde el PC:", id, va.n, "archivos", va.nueva and "(nueva)" or "")
-  manda({tipo = "app.instalada", pedido = pedido, id = id, ok = true, nueva = va.nueva, archivos = va.n})
   local abierta = nora.app()
-  if abierta == id or m.abrir == true then nora.abrir(id)              -- recarga en caliente
+  local recarga = abierta == id or m.abrir == true
+  -- con recarga, el nucleo manda luego {tipo="app.abierta"} o {tipo="app.error", error}
+  manda({tipo = "app.instalada", pedido = pedido, id = id, ok = true, nueva = va.nueva, archivos = va.n, recarga = recarga})
+  if recarga then nora.abrir(id)                                       -- recarga en caliente
   elseif va.nueva and abierta == "inicio" then nora.abrir("inicio") end  -- que salga en el inicio
 end
 ATIENDE["app.borrar"] = function(m)      -- {tipo="app.borrar", pedido, id}
@@ -381,6 +383,13 @@ ATIENDE["app.borrar"] = function(m)      -- {tipo="app.borrar", pedido, id}
     if nora.app() == m.id or nora.app() == "inicio" then nora.volver() end
   end
   manda({tipo = "app.borrada", pedido = m.pedido, id = m.id, ok = ok and true or false})
+end
+ATIENDE.captura = function(m)            -- {tipo="captura", pedido} -> el nucleo manda la pantalla en PNG
+  nora.captura(type(m.pedido) == "string" and m.pedido or "")
+end
+ATIENDE.pulsar = function(m)             -- {tipo="pulsar", botones={"A","ABAJO"}, ms=90}
+  local b = type(m.botones) == "table" and m.botones or {m.botones}
+  nora.pulsar(b, type(m.ms) == "number" and math.max(20, math.min(5000, m.ms)) or 90)
 end
 local function nombre_app(id)
   if nombres[id] == nil then

@@ -4,6 +4,7 @@
 #include <GLES2/gl2.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 static int W, H;
 static int tandas;
@@ -47,6 +48,13 @@ static const char *FS_TEXTO =
     "varying vec2 v_uv; varying vec4 v_color;\n"
     "void main(){ gl_FragColor = vec4(v_color.rgb, v_color.a * texture2D(u_atlas, v_uv).a); }\n";
 
+/* imagenes: textura RGBA (alfa premultiplicado no) por el color, que tine y da alfa */
+static const char *FS_IMAGEN =
+    "precision mediump float;\n"
+    "uniform sampler2D u_atlas;\n"
+    "varying vec2 v_uv; varying vec4 v_color;\n"
+    "void main(){ gl_FragColor = texture2D(u_atlas, v_uv) * v_color; }\n";
+
 static GLuint compila(GLenum tipo, const char *src)
 {
     GLuint s = glCreateShader(tipo);
@@ -81,13 +89,13 @@ static GLuint programa(const char *vs, const char *fs, const char **atributos, i
 /* ---------------- tandas ---------------- */
 
 #define MAXQ 2048
-enum { NADA, CAJAS, TEXTOS };
+enum { NADA, CAJAS, TEXTOS, IMAGENES };
 static int modo = NADA;
 static float vcaja[MAXQ * 6 * 12];   /* pos2 local2 color4 param4 */
 static float vtexto[MAXQ * 6 * 8];   /* pos2 uv2 color4 */
 static int nq;
-static GLuint p_caja, p_texto, tex_atlas;
-static GLint u_caja_pant, u_texto_pant, u_texto_atlas;
+static GLuint p_caja, p_texto, p_imagen, tex_atlas, tex_blanca, tex_actual;
+static GLint u_caja_pant, u_texto_pant, u_texto_atlas, u_imagen_pant, u_imagen_tex;
 
 static void manda(void)
 {
@@ -100,6 +108,15 @@ static void manda(void)
         glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 48, vcaja + 4);
         glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 48, vcaja + 8);
         glEnableVertexAttribArray(3);
+    } else if (modo == IMAGENES) {
+        glUseProgram(p_imagen);
+        glUniform2f(u_imagen_pant, W, H);
+        glUniform1i(u_imagen_tex, 0);
+        glBindTexture(GL_TEXTURE_2D, tex_actual);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 32, vtexto);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 32, vtexto + 2);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 32, vtexto + 4);
+        glDisableVertexAttribArray(3);
     } else {
         glUseProgram(p_texto);
         glUniform2f(u_texto_pant, W, H);
@@ -131,6 +148,11 @@ int pinta_iniciar(int ancho, int alto)
     u_caja_pant = glGetUniformLocation(p_caja, "u_pant");
     u_texto_pant = glGetUniformLocation(p_texto, "u_pant");
     u_texto_atlas = glGetUniformLocation(p_texto, "u_atlas");
+    p_imagen = programa(VS_TEXTO, FS_IMAGEN, at, 3);
+    u_imagen_pant = glGetUniformLocation(p_imagen, "u_pant");
+    u_imagen_tex = glGetUniformLocation(p_imagen, "u_atlas");
+    static const unsigned char blanco[4] = {255, 255, 255, 255};
+    tex_blanca = pinta_textura(blanco, 1, 1, 1);
     glGenTextures(1, &tex_atlas);
     glBindTexture(GL_TEXTURE_2D, tex_atlas);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -151,6 +173,7 @@ int pinta_iniciar(int ancho, int alto)
 void pinta_empezar(color_t f)
 {
     tandas = 0;
+    pinta_recorte(0, 0, -1, -1);
     glClearColor(f.r, f.g, f.b, 1);
     glClear(GL_COLOR_BUFFER_BIT);
 }
@@ -276,3 +299,59 @@ int pinta_fuente(const char *n)
 }
 void pinta_terminar(void) { manda(); modo = NADA; }
 int pinta_dibujados(void) { return tandas; }
+
+/* ---------------- imagenes ---------------- */
+unsigned pinta_textura(const unsigned char *rgba, int w, int h, int pixelado)
+{
+    GLuint t;
+    manda();
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    GLint f = pixelado ? GL_NEAREST : GL_LINEAR;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, f);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, f);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    return t;
+}
+void pinta_textura_borrar(unsigned t)
+{
+    GLuint g = t;
+    if (tex_actual == g) { manda(); tex_actual = 0; }
+    glDeleteTextures(1, &g);
+}
+/* un cuadrilatero texturizado: esquinas en pantalla (sentido horario desde arriba
+ * a la izquierda) y sus coordenadas de textura (0..1) */
+void pinta_quad(unsigned tex, const float xy[8], const float uv[8], color_t c)
+{
+    if (c.a <= 0) return;
+    if (modo != IMAGENES || tex_actual != tex || nq >= MAXQ) manda();
+    modo = IMAGENES;
+    tex_actual = tex;
+    static const int orden[6] = {0, 1, 2, 0, 2, 3};
+    float *v = vtexto + nq * 6 * 8;
+    for (int i = 0; i < 6; i++, v += 8) {
+        int k = orden[i];
+        v[0] = xy[2 * k]; v[1] = xy[2 * k + 1]; v[2] = uv[2 * k]; v[3] = uv[2 * k + 1];
+        v[4] = c.r; v[5] = c.g; v[6] = c.b; v[7] = c.a;
+    }
+    nq++;
+}
+void pinta_linea(float x1, float y1, float x2, float y2, float grosor, color_t c)
+{
+    float dx = x2 - x1, dy = y2 - y1, l = sqrtf(dx * dx + dy * dy);
+    if (l <= 0) return;
+    float nx = -dy / l * grosor / 2, ny = dx / l * grosor / 2;
+    float xy[8] = {x1 + nx, y1 + ny, x2 + nx, y2 + ny, x2 - nx, y2 - ny, x1 - nx, y1 - ny};
+    static const float uv[8] = {0, 0, 1, 0, 1, 1, 0, 1};
+    pinta_quad(tex_blanca, xy, uv, c);
+}
+void pinta_recorte(int x, int y, int w, int h)
+{
+    manda();
+    if (w < 0) { glDisable(GL_SCISSOR_TEST); return; }
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(x, H - y - h, w, h);       /* GL cuenta desde abajo */
+}

@@ -1,5 +1,5 @@
 -- Hola: la app más pequeña. Desde el PC:
---   nora-puente vigilar ejemplos/hola
+--   nora-puente vigilar skill/nora/ejemplos/hola
 -- y cada vez que guardes este archivo, la consola la recarga.
 local x, y, vx, vy = 320, 240, 140, 110
 local COLOR = 0xf59e0b
