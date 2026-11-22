@@ -26,8 +26,10 @@ LD_LIBRARY_PATH=/tmp/gpu/lib NORA_HW=/tmp/gpu/hw \
 LD_PRELOAD="/tmp/gpu/lib/libnoralog.so /tmp/gpu/lib/libhardware.so" \
     /tmp/gpu/bin/pvrsrvctl --start --no-module >> $LOG 2>&1 &
 P=$!
-sleep 3
-kill $P 2>/dev/null && log "pvrsrvctl seguia vivo a los 3 s (reintentando): FALLO" || log "pvrsrvctl termino"
+# esperar a que termine (suele tardar ~0,2 s), como mucho 3 s
+i=0
+while [ -d /proc/$P ] && [ $i -lt 30 ]; do busybox usleep 100000; i=$((i + 1)); done
+kill $P 2>/dev/null && log "pvrsrvctl seguia vivo a los 3 s (reintentando): FALLO" || log "pvrsrvctl termino en ${i}00 ms"
 # 4. el display class, SIEMPRE despues de pvrsrvctl (antes = oops del kernel).
 #    Sin el, gralloc dice "No devices" y EGL no arranca.
 if busybox grep -q "^dc_owl " /proc/modules; then

@@ -26,6 +26,8 @@ sube arranque/soltar $N/bin/soltar
 sube ${NORA_BUSYBOX:-$HOME/garlicos-fork/usb/busybox-consola} $N/bin/busybox
 sube ~/garlicos-fork/cara/suena $N/bin/suena
 sube arranque/arranque.sh $N/arranque.sh
+sube arranque/logo/arranque.565 $N/arranque.565
+sube gpu/arrancar-gpu.sh $N/gpu/arrancar.sh
 sube arranque/autostart-nora.sh /mnt/mmc/CFW/autostart/nora.sh
 python3 $H/consola.py $IP "$R /system/bin/sh -c 'touch $N/red-usb; echo 0 > $N/fallos; chmod 755 $N/bin/* $N/arranque.sh /mnt/mmc/CFW/autostart/nora.sh; sync; ls $N $N/bin'" | grep -v "___F\|<"
 echo "Nora instalada en la tarjeta ($IP)"
