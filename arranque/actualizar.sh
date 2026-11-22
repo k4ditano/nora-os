@@ -3,6 +3,7 @@
 # reiniciar la consola. Para el dia a dia; la primera vez, arranque/instalar.sh.
 #   arranque/actualizar.sh [ip]          todo
 #   SOLO_APPS=1 arranque/actualizar.sh   sin subir el nucleo
+#   SOLO_NUCLEO=1 arranque/actualizar.sh solo el nucleo (y apps/sistema)
 set -e
 cd "$(dirname "$0")/.."
 IP=${1:-192.168.7.2}
@@ -12,6 +13,9 @@ B=$N/bin/busybox          # Android no trae pidof, tail...
 sube() { python3 $H/subir-real.py "$1" "$2" $IP | grep -v ^OK || true; }
 orden() { python3 $H/consola.py $IP "$1" | grep -v "___F\|<\|^root@" || true; }
 
+if [ -n "$SOLO_NUCLEO" ]; then
+    sube apps/sistema/app.lua $N/apps/sistema/app.lua
+else
 dirs="$N/lib"
 for a in apps/*/; do dirs="$dirs $N/apps/$(basename $a)"; done
 orden "mkdir -p $dirs"
@@ -23,6 +27,7 @@ for f in sonidos/*.wav; do                     # la musica de menu pesa y no cam
     [ "$(basename $f)" = musica-menu.wav ] && continue
     sube $f $N/sonidos/$(basename $f)
 done
+fi
 [ -n "$SOLO_APPS" ] || sube nucleo/nora $N/bin/nora
 
 # parar la Nora que corre (SIGTERM: sale limpia y devuelve el menu de GarlicOS)

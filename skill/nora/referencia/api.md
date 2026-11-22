@@ -27,7 +27,8 @@ las librerías estándar (`math`, `string`, `table`, `io`, `os`).
 
 - `nora.W`, `nora.H` → 640, 480. El origen (0,0) es arriba a la izquierda; x a la derecha, y hacia abajo.
 - 60 fotogramas por segundo como mucho.
-- La pantalla es de 16 bits (RGB565): degradados suaves y colores muy oscuros se ven a escalones. Sin sincronía vertical todavía: en movimiento rápido puede verse algún corte horizontal.
+- La pantalla es de 16 bits (RGB565) y la GPU trama (dithering) los colores: degradados suaves y colores muy oscuros se ven a escalones o con un tramado fino.
+- Va sincronizada con el refresco de la pantalla (~60 Hz): sin cortes. `nora.fps()` → fotogramas del último segundo y ms que cuesta pasar uno a la pantalla (para medir si una app va justa).
 - Colores: número `0xRRGGBB` o texto `"#rrggbb"`. Casi todas las funciones aceptan
   detrás un `alfa` de 0 a 1 (por defecto 1).
 
@@ -105,7 +106,7 @@ Nombres: `"A" "B" "X" "Y" "L" "R" "L2" "R2" "SELECT" "START" "ARRIBA" "ABAJO" "I
 ## Sonido
 
 - `nora.suena(wav [, volumen])`: efecto, se mezcla con lo que suene. `volumen` 0..1.
-- `nora.musica(wav [, volumen])`: música de fondo en bucle (una sola; cambia con fundido). `nora.musica()` la para.
+- `nora.musica(wav [, volumen])`: música de fondo en bucle (una sola; cambia con fundido). `nora.musica()` la para. Es de la app que la pone: al cambiar de app se funde sola (la del menú no suena en tu juego); ponla en `app.entrar` si tu app tiene la suya.
 - Rutas relativas a la carpeta de la app. Los sonidos del sistema, siempre así:
   `local SONIDOS = os.getenv("NORA_SONIDOS")` y luego `nora.suena(SONIDOS .. "/mover.wav")`.
   Hay: `abrir mover menu volver pasar-izq pasar-der aviso risa` (`.wav`).

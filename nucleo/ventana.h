@@ -1,7 +1,10 @@
 /* ventana: la superficie de la GPU para EGL en la RG35XX.
  * Un ANativeWindow propio (en Android lo da SurfaceFlinger) con buffers de
  * gralloc RGB565 con cache de CPU; cada fotograma terminado se copia a una
- * pagina libre de /dev/fb0 y se cambia de pagina en el refresco (vsync). */
+ * pagina libre de /dev/fb0 y se cambia de pagina en el refresco. No hay
+ * FBIO_WAITFORVSYNC: el refresco se sabe por la interrupcion del controlador
+ * de pantalla (asoc_de en /proc/interrupts), y nunca se escribe en la pagina
+ * que se ve ni en la pedida y aun no puesta (eso eran las rayas). */
 #ifndef NORA_VENTANA_H
 #define NORA_VENTANA_H
 

@@ -719,6 +719,13 @@ static int l_cargar(lua_State *l)   /* nombre -> texto | nil */
 /* ---- captura de pantalla, para el PC ---- */
 static char captura_pedido[96];
 static int captura_pendiente;
+static int fps_ultimo;
+static int l_fps(lua_State *l)      /* -> fotogramas del ultimo segundo, ms que cuesta pasar uno a la pantalla */
+{
+    lua_pushnumber(l, fps_ultimo);
+    lua_pushnumber(l, ventana_ms_copia());
+    return 2;
+}
 static int l_captura(lua_State *l)  /* pedido: la proxima imagen va al PC como {"tipo":"captura",...} */
 {
     const char *p = luaL_optstring(l, 1, "");
@@ -740,7 +747,7 @@ static const luaL_Reg API[] = {
     {"conectado", l_conectado}, {"poner_hora", l_poner_hora}, {"de64", l_de64}, {"escribir", l_escribir},
     {"borrar", l_borrar}, {"es_carpeta", l_es_carpeta}, {"imagen", l_imagen}, {"dibuja", l_dibuja},
     {"linea", l_linea}, {"recorte", l_recorte}, {"pulsado", l_pulsado}, {"pulsar", l_pulsar},
-    {"salvar", l_salvar}, {"cargar", l_cargar}, {"captura", l_captura}, {0, 0}};
+    {"salvar", l_salvar}, {"cargar", l_cargar}, {"captura", l_captura}, {"fps", l_fps}, {0, 0}};
 
 static mundo_t *mundo_de(lua_State *l) { return l == app.L ? &app : l == sis.L ? &sis : 0; }
 static const char *id_de(lua_State *l) { mundo_t *m = mundo_de(l); return m ? m->id : "?"; }
@@ -1093,6 +1100,7 @@ int main(int argc, char **argv)
         if (fase == 1 && t - t_fase >= SALE) {
             char quien[512];
             snprintf(quien, sizeof quien, "%s", pendiente);
+            sonido_musica(0, 0);       /* la musica es de la app que la puso: fuera; la nueva pone la suya */
             mundo_abrir(&app, quien);
             pendiente[0] = 0;
             fondo = color_hex(0x0e1017, 1);
@@ -1132,6 +1140,7 @@ int main(int argc, char **argv)
         if (t - t_fps >= 1) {
             snprintf(fps_txt, sizeof fps_txt, "%d fps  copia %.1f ms  tandas %d", cuadros, ventana_ms_copia(),
                      pinta_dibujados());
+            fps_ultimo = cuadros;
             cuadros = 0;
             t_fps = t;
         }

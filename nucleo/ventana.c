@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
@@ -98,6 +99,9 @@ static struct {
     gralloc_module_t *gr;
     alloc_device_t *ad;
     int W, H, fb, pagina, paginas, vsync;
+    int irq_fd, irq_de;          /* la interrupcion del controlador de pantalla (asoc_de): una por refresco */
+    int pendiente;               /* pagina pedida y aun no puesta (-1: ninguna) */
+    long irq_al_pedir;
     unsigned char *pant;
     size_t tam;
     struct fb_var_screeninfo vi;
@@ -112,6 +116,52 @@ static double ahora(void)
     clock_gettime(CLOCK_MONOTONIC, &t);
     return t.tv_sec + t.tv_nsec / 1e9;
 }
+/* /proc/interrupts: veces que ha saltado la interrupcion de la pantalla (-1 si no se sabe) */
+static long cuenta_refrescos(void)
+{
+    static char b[8192];
+    if (V.irq_fd < 0) return -1;
+    int n = pread(V.irq_fd, b, sizeof b - 1, 0);
+    if (n <= 0) return -1;
+    b[n] = 0;
+    char clave[16];
+    int k = snprintf(clave, sizeof clave, "\n%3d:", V.irq_de);
+    char *p = strstr(b, clave);
+    if (!p) return -1;
+    p += k;
+    long total = 0;
+    for (int c = 0; c < 8; c++) {           /* una columna por CPU */
+        char *fin;
+        long v = strtol(p, &fin, 10);
+        if (fin == p) break;
+        total += v;
+        p = fin;
+    }
+    return total;
+}
+/* busca la interrupcion "asoc_de" (el DE de Actions avisa en cada refresco) */
+static void buscar_refresco(void)
+{
+    V.irq_fd = open("/proc/interrupts", O_RDONLY);
+    if (V.irq_fd < 0) return;
+    static char b[8192];
+    int n = pread(V.irq_fd, b, sizeof b - 1, 0);
+    b[n > 0 ? n : 0] = 0;
+    char *p = strstr(b, "asoc_de");
+    if (!p) { close(V.irq_fd); V.irq_fd = -1; return; }
+    while (p > b && p[-1] != '\n') p--;
+    V.irq_de = atoi(p);
+    /* ¿late? (si no, no sirve de reloj) */
+    long a = cuenta_refrescos();
+    usleep(40000);
+    if (cuenta_refrescos() <= a) { close(V.irq_fd); V.irq_fd = -1; }
+}
+/* espera al siguiente refresco (como mucho 50 ms) */
+static void espera_refresco(long desde)
+{
+    for (int i = 0; i < 100 && cuenta_refrescos() == desde; i++) usleep(500);
+}
+
 static void nada(void *p) { (void)p; }
 static int w_intervalo(ANativeWindow *w, int i) { (void)w; (void)i; return 0; }
 static int w_query(const ANativeWindow *w, int que, int *v)
@@ -155,6 +205,13 @@ static int w_queue(ANativeWindow *w, ANativeWindowBuffer *b, int fence)
     void *src = 0;
     if (fence >= 0) close(fence);       /* lock() ya espera a la GPU */
     if (V.gr->lock(V.gr, b->handle, USO_SW_READ_OFTEN, 0, 0, V.W, V.H, &src) == 0 && src) {
+        /* La pagina pedida no se pone hasta el siguiente refresco: hasta entonces se sigue
+         * viendo la anterior. No se escribe nunca en la que se ve ni en la pedida. */
+        if (V.irq_fd >= 0 && V.pendiente >= 0) {
+            if (cuenta_refrescos() == V.irq_al_pedir) espera_refresco(V.irq_al_pedir);
+            V.pagina = V.pendiente;
+            V.pendiente = -1;
+        }
         int pag = (V.pagina + 1) % V.paginas;           /* una pagina que NO se ve */
         unsigned char *dst = V.pant + (size_t)pag * V.H * V.fi.line_length;
         if (b->stride * 2 == (int)V.fi.line_length)
@@ -165,13 +222,17 @@ static int w_queue(ANativeWindow *w, ANativeWindowBuffer *b, int fence)
         V.gr->unlock(V.gr, b->handle);
         V.tcopia += ahora() - t0;
         V.copias++;
-        if (V.vsync) {
+        if (V.vsync && V.irq_fd < 0) {
             uint32_t pantalla = 0;
             ioctl(V.fb, FBIO_WAITFORVSYNC, &pantalla);
         }
-        V.pagina = pag;
         V.vi.yoffset = pag * V.H;
         ioctl(V.fb, FBIOPAN_DISPLAY, &V.vi);
+        if (V.irq_fd >= 0) {
+            V.pendiente = pag;
+            V.irq_al_pedir = cuenta_refrescos();
+        } else
+            V.pagina = pag;
     }
     V.libre[indice(b)] = 1;
     return 0;
@@ -230,6 +291,12 @@ int ventana_abrir(void)
     V.pagina = V.vi.yoffset / V.H;
     uint32_t p = 0;
     V.vsync = ioctl(V.fb, FBIO_WAITFORVSYNC, &p) == 0;
+    V.pendiente = -1;
+    buscar_refresco();
+    if (V.irq_fd >= 0) {
+        V.vsync = 1;
+        fprintf(stderr, "nora: refresco por la interrupcion %d (asoc_de)\n", V.irq_de);
+    }
 
     if (hw_get_module("gralloc", (const hw_module_t **)&V.gr)) { fprintf(stderr, "nora: sin gralloc\n"); return -1; }
     if (V.gr->common.methods->open(&V.gr->common, "gpu0", (hw_device_t **)&V.ad)) {
@@ -278,6 +345,7 @@ int ventana_tiene_vsync(void) { return V.vsync; }
 double ventana_ms_copia(void) { return V.copias ? 1000 * V.tcopia / V.copias : 0; }
 void ventana_cerrar(void)
 {
+    if (V.irq_fd >= 0) close(V.irq_fd);
     if (V.fb >= 0) {
         V.vi.yoffset = 0;
         ioctl(V.fb, FBIOPAN_DISPLAY, &V.vi);
