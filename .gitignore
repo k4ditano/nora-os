@@ -31,3 +31,8 @@ sysroot-fuentes/bionic/
 terceros/luajit/
 pruebas/hola-bionic
 __pycache__/
+
+# nucleo: compilado y generado (atlas.py)
+nucleo/nora
+nucleo/atlas.h
+nucleo/atlas-vista.png
