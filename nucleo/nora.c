@@ -795,7 +795,16 @@ static const luaL_Reg API[] = {
     {"linea", l_linea}, {"recorte", l_recorte}, {"pulsado", l_pulsado}, {"pulsar", l_pulsar},
     {"salvar", l_salvar}, {"cargar", l_cargar}, {"captura", l_captura}, {"fps", l_fps}, {"reposo", l_reposo}, {0, 0}};
 
-static mundo_t *mundo_de(lua_State *l) { return l == app.L ? &app : l == sis.L ? &sis : 0; }
+/* el mundo de un estado de Lua; las corrutinas tienen su propio lua_State, pero comparten el registro */
+static mundo_t *mundo_de(lua_State *l)
+{
+    if (l == app.L) return &app;
+    if (l == sis.L) return &sis;
+    lua_getfield(l, LUA_REGISTRYINDEX, "nora.mundo");
+    mundo_t *m = lua_touserdata(l, -1);
+    lua_pop(l, 1);
+    return (m == &app || m == &sis) ? m : 0;
+}
 static const char *id_de(lua_State *l) { mundo_t *m = mundo_de(l); return m ? m->id : "?"; }
 /* {"tipo":tipo,"id":id[,campo:texto]} al PC, si esta */
 static void manda_evento(const char *tipo, const char *id, const char *campo, const char *texto)
@@ -903,6 +912,8 @@ static int mundo_abrir(mundo_t *m, const char *quien)
         snprintf(ruta, sizeof ruta, "%s/app.lua", m->carpeta);
     }
     lua_State *L = m->L = luaL_newstate();
+    lua_pushlightuserdata(L, m);                       /* el mundo, también para las corrutinas */
+    lua_setfield(L, LUA_REGISTRYINDEX, "nora.mundo");
     luaL_openlibs(L);
     luaL_register(L, "nora", API);
     lua_pushnumber(L, ventana_ancho()); lua_setfield(L, -2, "W");
