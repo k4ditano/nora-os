@@ -60,6 +60,8 @@ Otras órdenes (todas en `nora-puente --help`):
 
 - **B vuelve al inicio** (`nora.volver()`) en el nivel de arriba de toda app (menú del juego,
   partida en marcha). Dentro de una pausa o un submenú, B puede ser "atrás"; desde ahí, otra B ya sale. MENU es del sistema.
+- **Cada archivo de la app pesa como mucho 2 MB** (`instalar` no pasa de ahí): una imagen grande sin transparencia, en JPG (`nora.imagen` lo lee); muchas piezas pequeñas, mejor juntas en un atlas y `recorte` (además se pintan de una vez y va más fluido).
+- **Cientos de `nora.dibuja` por fotograma**: reutiliza la tabla de opciones (cámbiale los campos) en vez de crear una por dibujo, y mide con `nora.fps()`.
 - **Solo Latin-1 en los textos**: español sí; emojis, flechas (←↑), ★, ♥, ✓ no (salen "?"). Para eso, `nora.icono` o imágenes.
 - **Nada de `<text>` en los SVG** (no se dibuja). Texto, con `nora.texto`.
 - `y` de `nora.texto` es la parte de **arriba** del texto. Mide con `nora.ancho` para centrar o encajar.
